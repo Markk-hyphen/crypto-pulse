@@ -9,6 +9,7 @@ use App\Message\EnrichItemMessage;
 use App\Provider\EmbeddingProviderInterface;
 use App\Provider\EnrichmentProviderInterface;
 use App\Repository\NewsItemRepository;
+use App\Service\ImpactScorer;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Mercure\HubInterface;
@@ -22,6 +23,7 @@ class EnrichItemHandler
         private readonly NewsItemRepository $newsItemRepo,
         private readonly EnrichmentProviderInterface $enrichmentProvider,
         private readonly EmbeddingProviderInterface $embeddingProvider,
+        private readonly ImpactScorer $impactScorer,
         private readonly EntityManagerInterface $em,
         private readonly HubInterface $hub,
         private readonly LoggerInterface $logger,
@@ -62,6 +64,7 @@ class EnrichItemHandler
             ->setTickers($result->tickers)
             ->setEntities($result->entities)
             ->setEmbedding($embedding)
+            ->setImpactScore($this->impactScorer->score($result))
             ->setModel($result->model)
             ->setTokens($result->totalTokens)
             ->setCostUsd($result->costUsd);

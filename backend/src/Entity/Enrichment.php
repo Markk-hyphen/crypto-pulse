@@ -41,6 +41,15 @@ class Enrichment
     #[ORM\Column(type: 'json')]
     private array $entities = [];
 
+    /**
+     * 0-1 priority score combining LLM salience + a deterministic heuristic
+     * (asset class, ticker count, live market volatility) — see
+     * Service\ImpactScorer. Computed once at enrichment time, not re-derived
+     * per request.
+     */
+    #[ORM\Column(type: 'float', options: ['default' => 0])]
+    private float $impactScore = 0.0;
+
     /** Dense vector representation of the article — used for semantic search */
     #[ORM\Column(type: 'vector', length: self::EMBEDDING_DIMENSIONS, nullable: true)]
     private ?array $embedding = null;
@@ -84,6 +93,9 @@ class Enrichment
 
     public function getEntities(): array { return $this->entities; }
     public function setEntities(array $entities): static { $this->entities = $entities; return $this; }
+
+    public function getImpactScore(): float { return $this->impactScore; }
+    public function setImpactScore(float $impactScore): static { $this->impactScore = $impactScore; return $this; }
 
     public function getEmbedding(): ?array { return $this->embedding; }
     public function setEmbedding(?array $embedding): static { $this->embedding = $embedding; return $this; }

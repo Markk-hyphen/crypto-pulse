@@ -10,6 +10,7 @@ final readonly class EnrichmentResult
         public ?string $assetClass,
         public array   $tickers,
         public array   $entities,
+        public float   $salience,
         public string  $model,
         public int     $totalTokens,
         public string  $costUsd,

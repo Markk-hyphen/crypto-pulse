@@ -17,6 +17,7 @@ class NullEnrichmentProvider implements EnrichmentProviderInterface
             assetClass: null,
             tickers: [],
             entities: [],
+            salience: 0.0,
             model: 'null-provider',
             totalTokens: 0,
             costUsd: '0.000000',

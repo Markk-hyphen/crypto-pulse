@@ -25,6 +25,7 @@ You are a cryptocurrency news analyst. Given a news article, respond ONLY with a
 - "asset_class": string or null — primary crypto category affected (e.g. "BTC", "ETH", "DeFi", "NFT", "Regulation", "Stablecoin", "Layer2", "Exchange", "Market", "Altcoin")
 - "tickers": array of strings — cryptocurrency ticker symbols mentioned (e.g. ["BTC", "ETH"])
 - "entities": array of strings — key named entities: people, organizations, protocols
+- "salience": number between 0 and 1 — how significant this news is for the crypto market overall (1 = major market-moving event like a regulation change, exchange hack, or ETF decision; 0 = routine/minor item with little broader impact)
 
 Return ONLY the JSON object. No markdown, no explanation, no wrapping.
 PROMPT;
@@ -100,12 +101,18 @@ PROMPT;
             ? $sentimentRaw
             : 'neutral';
 
+        // Default to 0 (not 0.5) on a missing/invalid value: an absent signal
+        // should not silently pull the impact score toward the middle.
+        $salienceRaw = $parsed['salience'] ?? null;
+        $salience    = \is_numeric($salienceRaw) ? max(0.0, min(1.0, (float) $salienceRaw)) : 0.0;
+
         return new EnrichmentResult(
             summary:     $parsed['summary'] ?? '',
             sentiment:   $sentiment,
             assetClass:  $parsed['asset_class'] ?? null,
             tickers:     \is_array($parsed['tickers'] ?? null) ? $parsed['tickers'] : [],
             entities:    \is_array($parsed['entities'] ?? null) ? $parsed['entities'] : [],
+            salience:    $salience,
             model:       self::MODEL,
             totalTokens: $inputTokens + $outputTokens + $cacheWriteTokens,
             costUsd:     number_format($cost, 6, '.', ''),

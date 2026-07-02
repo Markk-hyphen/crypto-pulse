@@ -29,6 +29,7 @@ class NewsItemPayloadTest extends TestCase
             ->setAssetClass('BTC')
             ->setTickers(['BTC'])
             ->setEntities(['Bitcoin'])
+            ->setImpactScore(0.72)
             ->setModel('claude-haiku-4-5')
             ->setCostUsd('0.000123');
 
@@ -40,9 +41,10 @@ class NewsItemPayloadTest extends TestCase
         self::assertSame('Short summary', $payload['summary']);
         self::assertSame('positive', $payload['sentiment']);
         self::assertSame(['BTC'], $payload['tickers']);
+        self::assertSame(0.72, $payload['impactScore']);
         // The feed shape must stay in sync between REST and Mercure — lock the keys.
         self::assertSame(
-            ['id', 'source', 'title', 'url', 'publishedAt', 'summary', 'sentiment', 'assetClass', 'tickers', 'entities', 'model', 'costUsd'],
+            ['id', 'source', 'title', 'url', 'publishedAt', 'summary', 'sentiment', 'assetClass', 'tickers', 'entities', 'impactScore', 'model', 'costUsd'],
             array_keys($payload),
         );
     }
@@ -55,6 +57,7 @@ class NewsItemPayloadTest extends TestCase
         self::assertNull($payload['sentiment']);
         self::assertSame([], $payload['tickers']);
         self::assertSame([], $payload['entities']);
+        self::assertNull($payload['impactScore']);
     }
 
     public function testDetailAddsBodyStatusAndCreatedAt(): void

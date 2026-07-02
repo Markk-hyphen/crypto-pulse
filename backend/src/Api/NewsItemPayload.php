@@ -31,6 +31,7 @@ final class NewsItemPayload
             'assetClass'  => $enrichment?->getAssetClass(),
             'tickers'     => $enrichment?->getTickers() ?? [],
             'entities'    => $enrichment?->getEntities() ?? [],
+            'impactScore' => $enrichment?->getImpactScore(),
             'model'       => $enrichment?->getModel(),
             'costUsd'     => $enrichment?->getCostUsd(),
         ];
