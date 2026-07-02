@@ -562,3 +562,31 @@ Política de resolución (§9): **dominio/pipeline gana CMP; framework/infra gan
 Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_PROFILES=queues,cron` en vez de pelearse con el modelo opt-in de Oliva. **D2** (resuelta por Marcos pre-merge) — identidad en infra compartida: `crypto_db`/`crypto_user` + vhost `crypto` + `-p crypto`; templates comentados en `.env.backend` listos para el VPS. **D3** — `docs/concepts.md` conservando la voz de dominio de CMP (la versión de main deriva de ella).
 
 **Verificación runtime post-merge (rehecha porque el merge toca justo lo que arranca dev):** 6 servicios healthy con profiles activos; `debug:container EnrichmentProviderInterface` en dev → `NullEnrichmentProvider` (M2 efectivo); migraciones al día; `/health` ok; hub Mercure 200; worker consumiendo; PHPUnit 2/2; poll e2e del scheduler ejecutado a las 16:00 con 164 items `enriched` y 0 `pending` en DB.
+
+## [PASO 1.6] feat: API REST del feed
+**Hash:** `aa2c80c99032931f442f7ebe6edb472a197eb101`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Api/NewsItemPayload.php` | nuevo | Forma pública del item (12 keys): única fuente de verdad compartida entre REST y Mercure; variante `detail()` suma body/status/createdAt |
+| `backend/src/Controller/Api/FeedController.php` | nuevo | `GET /api/feed` (page/limit tope 100, filtros source/sentiment/assetClass, meta de paginación) y `GET /api/items/{id}` (404 JSON; requirement `\d+`) |
+| `backend/src/Repository/NewsItemRepository.php` | modificado | `findFeedPage()`: solo `enriched` con innerJoin + fetch-join del enrichment (sin N+1), COUNT separado, orden publishedAt DESC + id DESC (tie-breaker estable) |
+| `backend/src/MessageHandler/EnrichItemHandler.php` | modificado | El publish a Mercure arma el payload vía `NewsItemPayload::from()` en vez del array inline duplicado |
+| `backend/tests/Unit/Api/NewsItemPayloadTest.php` | nuevo | 3 tests: payload con/sin enrichment + lock de las keys (si REST y Mercure divergen, el test rompe) |
+| `PLAN-MARKET-PULSE.md` | modificado | Tildados ✅ 1.5 (estaba hecho sin tildar) y ✅ 1.6 |
+| `CLAUDE.md` | modificado | Hecho: 1.1–1.6; Próximo paso → 1.7 Dashboard en vivo |
+
+### Justificación
+
+**Payload compartido REST↔Mercure:** el dashboard (1.7) va a recibir items por dos canales — carga inicial REST y updates en vivo por Mercure. Si las dos formas divergen, el front necesita dos parsers o rompe en silencio. Extraer `NewsItemPayload` elimina la duplicación que ya existía (el handler tenía el array inline) y el test de keys convierte una divergencia futura en un fail explícito de CI.
+
+**Solo items `enriched` en el feed:** un item `pending`/`failed` no tiene resumen, sentiment ni tickers — no aporta nada renderizable. El detail (`/api/items/{id}`) sí devuelve cualquier status (con campos de enrichment en null) porque ahí el caso de uso es inspección, no display.
+
+**Sin serializer bundle ni API Platform:** para 2 endpoints read-only, mapear a mano vía el payload es menos dependencia y más control que sumar el Serializer de Symfony (no estaba instalado). Si la API crece en Fase 2 (search, Market Now), reevaluar.
+
+**Sin CORS:** `/api` ya era same-origin por diseño de Oliva — proxy de Vite en dev y `handle /api/*` en el Caddyfile del frontend en prod. La "verificación CORS" del plan se cumple por arquitectura, no por headers.
+
+**Hallazgo (no bug):** 53 items con `status=enriched` sin fila `Enrichment` en la DB de dev — todos del 2026-06-01 05:53–06:05, test-runs del paso 1.4 previos al persist. El innerJoin del feed los excluye solo. Es ruido de dev; si molesta, un `UPDATE`/purga manual alcanza.
