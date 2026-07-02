@@ -5,6 +5,33 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 
 ---
 
+## [PASO 2.1 · post-review] refactor: quitar retry redundante de CoinGecko + test + anotar deuda schema:validate
+**Hash:** `6250672`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Provider/CoinGeckoProvider.php` | modificado | Elimina `requestWithBackoff()` (retry a mano ante 429) + constantes `MAX_RETRIES`/`RETRY_BASE_DELAY_MS` + import de `ClientExceptionInterface`; llama al cliente HTTP directo |
+| `backend/tests/Unit/Provider/CoinGeckoProviderTest.php` | nuevo | 4 tests con `MockHttpClient`: mapeo id→ticker + normalización, skip de asset ausente del payload, tolerancia a campos opcionales faltantes, verificación de los coin-ids pedidos |
+| `CLAUDE.md` | modificado | Entrada 🔴 en "Deuda técnica conocida": `doctrine:schema:validate` en rojo por el tipo `vector` + índice HNSW no modelables en ORM |
+| `agent-commits.md` | modificado | Esta entrada |
+
+### Justificación
+
+**Origen:** revisión de weak-points del paso 2.1 hecha con Opus tras la implementación con Sonnet (el handoff de modelo previsto en el flujo de trabajo). Tres hallazgos; dos aplicados acá, uno anotado como deuda.
+
+**#1 — Doble retry sobre 429 eliminado.** `CoinGeckoProvider` inyecta el cliente HTTP autowired, que ya trae `retry_failed` (2 reintentos con backoff) configurado en `framework.yaml` desde 1.8 — y 429 está entre los códigos que Symfony reintenta por defecto. El `requestWithBackoff()` que había escrito reintentaba el 429 *encima* de esa capa: hasta 3×3=9 requests por poll con dos backoffs pisándose. Es el mismo antipatrón "dos mecanismos para el mismo trabajo" que 1.8 desarmó con el DLX, y contradice el comentario de `framework.yaml` que declara `retry_failed` como "the cheap first line of defense against rate limits". Se borra el retry manual: comportamiento igual o mejor (si el poll falla, supercronic reintenta en 2 min; nada encolado que perder). Alternativa descartada: dejar el retry manual y sacar 429 de `retry_failed` — peor, porque `retry_failed` es transversal a todos los http-client del backend (Anthropic, Voyage) y ahí sí se quiere.
+
+**#3 — Test del provider (consistencia con el precedente).** 1.8 le dio a `RssAdapter` un test unitario con `MockHttpClient`; 2.1 había quedado sin cobertura para el provider nuevo. El test cubre lo que puede romperse en silencio: el orden de salida sigue el mapa `assetIds` configurado (no el JSON), un asset configurado pero ausente del payload se saltea (no se emite con campos null/cero), y los campos opcionales faltantes caen a null. Suite: 8→12 verde.
+
+**#2 — Deuda anotada, NO arreglada (zona bloqueada).** `doctrine:schema:validate` sale con exit 2 por dos drifts que Doctrine no sabe modelar: el `length` del tipo `vector` no round-trippea, y el índice HNSW (SQL crudo en la migración 1.1) no es expresable en el mapping ORM → el schema-tool siempre lo quiere dropear. Es un gate duro del CI que hoy no salta (el CI solo corre en `push:main` y CMP vive en la rama) pero romperá cuando el schema de CMP llegue a CI. Se descartó tocarlo: la solución (tipo Doctrine custom + índice fuera del schema-tool) es parte del estudio pgvector/HNSW que Marcos tiene bloqueado. Queda documentado en `CLAUDE.md` para que no sorprenda.
+
+**Verificación:** `vendor/bin/phpunit` 12/12 verde; `app:market:poll -v` corrido contra la API real de CoinGecko post-refactor → 2 snapshots persistidos, sin regresión.
+
+---
+
 ## Formato de entrada
 
 ```
