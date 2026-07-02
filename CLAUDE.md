@@ -45,8 +45,8 @@ El target de deploy de CMP es la **infra compartida** (`~/infra`: Postgres + Rab
 
 ## Estado del proyecto
 
-- **Hecho:** Fase 0 completa (0.1–0.8) + 1.1–1.5 (modelo de dominio + HNSW, ingesta RSS, poll programado, enriquecimiento IA, Mercure publish + null provider dev). Sync con main ejecutado 2026-07-02.
-- **Próximo paso:** 1.6 — API REST (`GET /api/feed` paginado + filtros básicos, `GET /api/items/{id}`).
+- **Hecho:** Fase 0 completa (0.1–0.8) + 1.1–1.6 (modelo de dominio + HNSW, ingesta RSS, poll programado, enriquecimiento IA, Mercure publish + null provider dev). Sync con main ejecutado 2026-07-02.
+- **Próximo paso:** 1.7 — Dashboard en vivo (carga inicial vía REST + suscripción Mercure a `crypto/feed`, patrón `live.js`).
 - **Decisiones cerradas:** broker **RabbitMQ**, scheduler **contenedor cron (supercronic)**, LLM **Anthropic** (Haiku volumen / Sonnet agregados), vector **pgvector**, dominio **cripto** (RSS CoinDesk/Cointelegraph + CoinGecko; CryptoPanic en Fase 2).
 - **Pendiente de estudio (NO avanzar sin Marcos):** pgvector / índice HNSW — bloqueante para Fase 2 (2.2 búsqueda semántica). La migración 1.1 crea un índice HNSW parcial, pero el diseño (parámetros `m`/`ef_construction`, operador de distancia, re-embedding) queda sin definir hasta que Marcos lo estudie.
 

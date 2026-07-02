@@ -203,11 +203,11 @@ El **hub ya funciona**. Solo falta el publisher: instalar `symfony/mercure-bundl
 - *Acciones:* `EnrichmentProvider` (Anthropic Haiku vía http-client) → resumen + sentiment + clase de activo + tickers/entidades; `EmbeddingProvider` → embedding (definir proveedor aquí, §3.7); handler de `EnrichMessage`: idempotente, cachea, persiste `Enrichment`, registra tokens/costo, marca `NewsItem(status=enriched)`.
 - *Verificación:* items pasan a `enriched` con resumen y embedding; reintentos no duplican costo; fallo de API → DLX, no se pierde el item.
 
-**1.5 — Publish a Mercure**
+**✅ 1.5 — Publish a Mercure**
 - *Acciones:* al persistir `Enrichment`, publicar el item enriquecido al topic `crypto/feed` con `HubInterface`.
 - *Verificación:* `curl` al hub / front recibe el evento.
 
-**1.6 — API REST**
+**✅ 1.6 — API REST**
 - *Acciones:* `GET /api/feed` (paginado, filtros básicos) y `GET /api/items/{id}`; serialización; CORS/headers según Caddyfile.
 - *Verificación:* endpoints responden JSON correcto; paginación ok.
 

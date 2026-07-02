@@ -2,6 +2,7 @@
 
 namespace App\MessageHandler;
 
+use App\Api\NewsItemPayload;
 use App\Entity\Enrichment;
 use App\Entity\NewsItemStatus;
 use App\Message\EnrichItemMessage;
@@ -70,22 +71,10 @@ class EnrichItemHandler
         $this->em->persist($enrichment);
         $this->em->flush();
 
+        // Same shape as the REST API (GET /api/feed) — see NewsItemPayload.
         $this->hub->publish(new Update(
             'crypto/feed',
-            json_encode([
-                'id'          => $item->getId(),
-                'source'      => $item->getSource(),
-                'title'       => $item->getTitle(),
-                'url'         => $item->getUrl(),
-                'publishedAt' => $item->getPublishedAt()->format(\DateTimeInterface::ATOM),
-                'summary'     => $enrichment->getSummary(),
-                'sentiment'   => $enrichment->getSentiment(),
-                'assetClass'  => $enrichment->getAssetClass(),
-                'tickers'     => $enrichment->getTickers(),
-                'entities'    => $enrichment->getEntities(),
-                'model'       => $enrichment->getModel(),
-                'costUsd'     => $enrichment->getCostUsd(),
-            ]),
+            json_encode(NewsItemPayload::from($item, $enrichment)),
         ));
 
         $this->logger->info('EnrichItemHandler: enriched', [
