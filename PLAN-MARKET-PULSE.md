@@ -211,7 +211,7 @@ El **hub ya funciona**. Solo falta el publisher: instalar `symfony/mercure-bundl
 - *Acciones:* `GET /api/feed` (paginado, filtros básicos) y `GET /api/items/{id}`; serialización; CORS/headers según Caddyfile.
 - *Verificación:* endpoints responden JSON correcto; paginación ok.
 
-**1.7 — Dashboard en vivo**
+**✅ 1.7 — Dashboard en vivo**
 - *Acciones:* nueva vista (reusar patrón `live.js`/Bootstrap): carga inicial vía REST + suscripción Mercure a `crypto/feed`; cada card muestra resumen IA, sentiment, etiquetas/tickers, fuente, timestamp; indicador LIVE/RECONNECTING.
 - *Verificación:* abrir 2 pestañas; entra noticia real; aparece enriquecida y se actualiza en vivo en ambas sin recargar.
 

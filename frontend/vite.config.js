@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 
 export default defineConfig(({ mode }) => {
@@ -11,6 +12,12 @@ export default defineConfig(({ mode }) => {
             minify: "terser",
             outDir: 'dist',
             emptyOutDir: true,
+            rollupOptions: {
+                input: {
+                    main: fileURLToPath(new URL('index.html', import.meta.url)),
+                    pulse: fileURLToPath(new URL('pulse.html', import.meta.url)),
+                },
+            },
             terserOptions: {
                 compress: {
                     drop_console: true

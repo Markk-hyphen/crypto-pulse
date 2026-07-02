@@ -590,3 +590,31 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Sin CORS:** `/api` ya era same-origin por diseño de Oliva — proxy de Vite en dev y `handle /api/*` en el Caddyfile del frontend en prod. La "verificación CORS" del plan se cumple por arquitectura, no por headers.
 
 **Hallazgo (no bug):** 53 items con `status=enriched` sin fila `Enrichment` en la DB de dev — todos del 2026-06-01 05:53–06:05, test-runs del paso 1.4 previos al persist. El innerJoin del feed los excluye solo. Es ruido de dev; si molesta, un `UPDATE`/purga manual alcanza.
+
+## [PASO 1.7] feat: dashboard en vivo (pulse.html)
+**Hash:** `pendiente`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `frontend/pulse.html` | nuevo | Página del dashboard: header con indicador LIVE/RECONNECTING + contador, contenedor del feed, nav cruzada con la landing |
+| `frontend/src/pulse.js` | nuevo | Entry propio: carga inicial `GET /api/feed?limit=30` (retry a los 5s si falla) + `EventSource` a `crypto/feed` con reconexión (patrón `live.js`); `upsert()` — id conocido reemplaza la card in-place, id nuevo la prependea (tope 60); render de cards con escape HTML de todo dato remoto |
+| `frontend/src/style.css` | modificado | Bloque de estilos `pulse-*` (cards, badges de sentiment por valor, tags/tickers, estados vacío/error) reutilizando la paleta y `live-dot`/`feedIn` existentes |
+| `frontend/vite.config.js` | modificado | Build multi-page (`rollupOptions.input`: index + pulse) vía `fileURLToPath` (el paquete es ESM, no hay `__dirname`) |
+| `frontend/index.html` | modificado | Link "Crypto Pulse →" en la nav de la landing |
+| `PLAN-MARKET-PULSE.md` | modificado | Tildado ✅ 1.7 |
+| `CLAUDE.md` | modificado | Hecho: 1.1–1.7; Próximo paso → 1.8 Robustez del pipeline |
+
+### Justificación
+
+**Página aparte, no SPA:** el anti-scope (§7) prohíbe reescribir el front a framework; una segunda página estática con entry propio de Vite es el mínimo que separa la vidriera del dashboard. `rollupOptions.input` multi-page es la vía estándar de Vite y Caddy la sirve sin config extra (`file_server`).
+
+**Un solo render path para REST y Mercure:** las cards se construyen con `card(item)` tanto en la carga inicial como en los eventos SSE — posible porque 1.6 unificó el shape en `NewsItemPayload`. `upsert()` reemplaza in-place si el id ya está (cubre el caso "pending que se enriquece después de la carga") en vez de duplicar la card.
+
+**Escape HTML obligatorio:** títulos/resúmenes vienen de feeds RSS externos y de un LLM — contenido no confiable. `esc()` pasa todo por `textContent` (+ `&quot;` para atributos). Verificado con un probe real: título con `<img onerror>` inyectado en DB recorrió el pipeline completo y llegó al DOM como texto plano (0 nodos inyectados, `window.__pwned` sin definir).
+
+**Sin filtros ni paginación en la UI:** el plan los difiere a 2.6; agregar controles ahora sería scope creep. El tope de 60 cards en memoria evita crecimiento sin límite en sesiones largas.
+
+**Verificación (gate del paso cumplido):** Playwright + Chrome headless con 2 pestañas: carga inicial 30 cards + LIVE en ambas; item re-enriquecido vía pipeline real (reset a pending + `app:enrich:requeue-pending`) apareció actualizado en ambas pestañas sin recargar; build prod multi-page OK. De paso quedó demostrado el camino DLX: un insert duplicado agotó 3 retries y fue al failure transport sin perder el mensaje.

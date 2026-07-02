@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crypto Pulse — Live Market Feed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,300;0,400;1,300&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+</head>
+<body class="pulse-body">
+
+  <!-- NAV -->
+  <nav id="navbar" class="nav-bar scrolled">
+    <span class="nav-brand">Crypto Pulse</span>
+    <div class="nav-actions">
+      <a href="/" class="nav-btn">← Oliva</a>
+      <a href="http://localhost/api/feed" class="nav-btn" target="_blank">API →</a>
+    </div>
+  </nav>
+
+  <!-- HEADER -->
+  <header class="pulse-header">
+    <div class="container">
+      <p class="section-eyebrow light">Real-time · AI-enriched</p>
+      <h1 class="section-title light">Market Pulse.<br /><em>As it happens.</em></h1>
+
+      <div class="live-status">
+        <span class="live-dot"></span>
+        <span class="live-label">CONNECTING</span>
+        <span class="live-sep">·</span>
+        <span class="pulse-count">— items</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- FEED -->
+  <main class="pulse-main">
+    <div class="container">
+      <div id="pulse-feed" class="pulse-feed">
+        <p class="pulse-empty">Loading feed…</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <span>Crypto Pulse</span>
+    <span class="footer-sep">·</span>
+    <span>RSS → RabbitMQ → Claude → Mercure</span>
+    <span class="footer-sep">·</span>
+    <span>Built on Oliva</span>
+  </footer>
+
+  <script type="module" src="src/pulse.js"></script>
+</body>
+</html>

@@ -566,6 +566,109 @@ a { text-decoration: none; }
 }
 
 /* ─────────────────────────────────────────
+   Crypto Pulse dashboard (pulse.html)
+───────────────────────────────────────── */
+.pulse-body { background: var(--forest); }
+
+.nav-actions { display: flex; gap: .6rem; }
+
+.pulse-header {
+  padding: 8.5rem 0 3rem;
+}
+.pulse-header .section-title { margin-bottom: 2rem; }
+
+.pulse-main { padding-bottom: 5rem; }
+
+.pulse-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 780px;
+}
+
+.pulse-empty {
+  padding: 2rem 1rem;
+  font-size: .85rem;
+  color: var(--text-muted);
+  text-align: center;
+  border: 1px dashed var(--leaf-border);
+  border-radius: 12px;
+}
+.pulse-empty--error { color: #c0392b; border-color: rgba(192,57,43,.4); }
+
+.pulse-card {
+  background: rgba(28,52,16,.3);
+  border: 1px solid var(--leaf-border);
+  border-radius: 12px;
+  padding: 1.1rem 1.3rem;
+  backdrop-filter: blur(10px);
+}
+.pulse-card--new { animation: feedIn .35s ease; }
+
+.pulse-card-meta {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-bottom: .5rem;
+  font-size: .68rem;
+  letter-spacing: .08em;
+}
+.pulse-source {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--leaf);
+}
+.pulse-time { color: var(--text-muted); }
+
+.pulse-sentiment {
+  margin-left: auto;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: .16rem .55rem;
+  border-radius: 999px;
+  border: 1px solid;
+}
+.pulse-sentiment--positive { color: var(--leaf);  border-color: var(--leaf-border); background: var(--leaf-dim); }
+.pulse-sentiment--negative { color: #d98880;      border-color: rgba(192,57,43,.35); background: rgba(192,57,43,.12); }
+.pulse-sentiment--neutral  { color: var(--text-muted); border-color: var(--leaf-border); background: rgba(140,184,74,.05); }
+
+.pulse-title {
+  font-size: 1.02rem;
+  font-weight: 500;
+  line-height: 1.35;
+  margin-bottom: .45rem;
+}
+.pulse-title a {
+  color: var(--cream);
+  text-decoration: none;
+  transition: color .2s;
+}
+.pulse-title a:hover { color: var(--leaf); }
+
+.pulse-summary {
+  font-size: .82rem;
+  line-height: 1.55;
+  color: rgba(245, 240, 230, 0.72);
+  margin-bottom: .6rem;
+}
+.pulse-summary--pending { font-style: italic; opacity: .55; }
+
+.pulse-tags { display: flex; flex-wrap: wrap; gap: .35rem; }
+.pulse-tag {
+  font-size: .64rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--leaf-border);
+  border-radius: 4px;
+  padding: .15rem .45rem;
+}
+.pulse-tag--class { color: var(--gold); border-color: rgba(196,154,56,.35); }
+
+.pulse-count { font-size: .78rem; color: var(--text-muted); }
+
+/* ─────────────────────────────────────────
    Responsive
 ───────────────────────────────────────── */
 @media (max-width: 640px) {
@@ -574,4 +677,5 @@ a { text-decoration: none; }
   .arch-connector { display: none; }
   .arch { flex-direction: column; }
   .live-grid { grid-template-columns: 1fr; }
+  .pulse-header { padding-top: 7rem; }
 }
