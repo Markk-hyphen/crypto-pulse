@@ -620,7 +620,7 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Verificación (gate del paso cumplido):** Playwright + Chrome headless con 2 pestañas: carga inicial 30 cards + LIVE en ambas; item re-enriquecido vía pipeline real (reset a pending + `app:enrich:requeue-pending`) apareció actualizado en ambas pestañas sin recargar; build prod multi-page OK. De paso quedó demostrado el camino DLX: un insert duplicado agotó 3 retries y fue al failure transport sin perder el mensaje.
 
 ## [PASO 1.8] feat: robustez del pipeline (retries, DLX saneado, timeouts, degradación del front)
-**Hash:** `(pendiente — se registra en el commit siguiente)`
+**Hash:** `96090c85e2f26d386b10e8c2485633e66516804b`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-07-02
 
