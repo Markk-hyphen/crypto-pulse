@@ -4,6 +4,14 @@ Framework base para construir webapps: backend Symfony (FrankenPHP), frontend Vi
 
 Este `CLAUDE.md` es la guía operativa para agentes que trabajen sobre proyectos construidos con Oliva. La documentación humana (stack, getting started) está en `README.md`.
 
+## Forks y sync con upstream (hito pesado — tener presente al avanzar `main`)
+
+Las apps hechas con Oliva viven en **repos separados** (ej. finanzas-ong) y derivan de este upstream. Cada fork **graduó su backend de boilerplate a código versionado por su cuenta**, partiendo de un punto anterior a que Oliva versionara su propio `src/`.
+
+**Por qué importa:** cuanto más avanza `main` antes de que un fork sincronice, **más caro es el merge**. El esqueleto Symfony (`composer.json/lock`, `symfony.lock`, `bundles.php`, `config/**`) fue creado en ambos lados **sin ancestro común** → git lo marca `add/add` y no puede hacer 3-way merge: conflicto en todo el esqueleto aunque el contenido sea casi idéntico. Caso real: un fork tras ~mes y medio de divergencia = **19 archivos en conflicto**.
+
+**Regla práctica (no es un sistema, solo tenerlo presente):** no dejar divergir los forks sin necesidad. Antes de un push grande a `main`, recordar que los forks activos conviene sincronizarlos (o al menos anotar que quedaron atrás). Si un fork ya tiene un análisis de sync hecho, respetarlo en vez de re-derivarlo.
+
 ## Comandos principales
 
 ### Desarrollo
