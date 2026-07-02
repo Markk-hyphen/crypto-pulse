@@ -1,20 +1,20 @@
 name: CI
 
+# Flujo solo-dev: sin PRs. El CI corre DESPUÉS de mergear a main (red de
+# seguridad que solo avisa cuando main se rompe) y a demanda (workflow_dispatch).
 on:
   push:
     branches:
       - main
-      - release/plan-market-pulse
-  pull_request: ~
   workflow_dispatch: ~
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   tests:
-    name: Tests
+    name: Tests (smoke + PHPUnit)
     runs-on: ubuntu-latest
     steps:
       -
@@ -22,6 +22,8 @@ jobs:
         uses: actions/checkout@v4
 
       -
+        # Driver docker-container: necesario para que el caché type=gha funcione
+        # (el driver docker por defecto no soporta backends de caché de buildx).
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -49,8 +51,23 @@ jobs:
           EOF
 
       -
-        name: Build Docker images
-        run: docker compose build
+        # El cuello de botella era rebuildear extensiones PHP + composer + yarn en
+        # cada corrida (disco limpio = cero caché). bake con caché de capas de GHA:
+        # con deps sin cambios el build pasa de minutos a segundos. Solo backend y
+        # frontend (los únicos con build); database se pullea sola en el `up`.
+        name: Build images (caché de capas GHA)
+        uses: docker/bake-action@v5
+        with:
+          files: |
+            docker-compose.yml
+            docker-compose.override.yml
+          targets: |
+            backend
+            frontend
+          load: true
+          set: |
+            *.cache-from=type=gha
+            *.cache-to=type=gha,mode=max
 
       -
         name: Start services
@@ -75,11 +92,40 @@ jobs:
 
       -
         name: Doctrine Schema Validator
-        run: docker compose exec -T backend bin/console doctrine:schema:validate --skip-sync
+        run: docker compose exec -T backend bin/console doctrine:schema:validate
 
       -
         name: Run PHPUnit
         run: docker compose exec -T backend php vendor/bin/phpunit
+
+  prod-config:
+    # Guarda barata (sin build, segundos): el stack prod solo se testea acá vía
+    # `config`. Atrapa la clase de bug donde un override de Compose pisa APP_ENV
+    # con la palabra larga y desactiva los bloques when@prod de Symfony (cache de
+    # Doctrine, auto_generate_proxy_classes). El job de tests solo levanta DEV.
+    name: Prod config guard
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+
+      -
+        name: Minimal env files (solo para interpolar config)
+        run: |
+          cp .env.example .env
+          : > .env.backend
+
+      -
+        name: APP_ENV resuelve a 'prod' en el stack prod (backend + scheduler)
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            --profile cron config --format json > prod-config.json
+          jq -e '.services.backend.environment.APP_ENV == "prod"' prod-config.json > /dev/null \
+            || { echo "::error::backend APP_ENV != 'prod' en docker-compose.prod.yml — los bloques when@prod de Symfony NO se aplicarían"; exit 1; }
+          jq -e '.services.scheduler.environment.APP_ENV == "prod"' prod-config.json > /dev/null \
+            || { echo "::error::scheduler APP_ENV != 'prod' en docker-compose.prod.yml"; exit 1; }
+          echo "✓ backend y scheduler resuelven APP_ENV=prod"
 
   lint:
     name: Docker Lint

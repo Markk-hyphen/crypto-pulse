@@ -1,0 +1,79 @@
+# Overlay OPCIONAL: conecta esta app a una infra compartida externa
+# (Postgres + RabbitMQ + reverse-proxy en su propio repo `infra`).
+#
+# No reemplaza a docker-compose.prod.yml: se APILA encima. Si nunca usás
+# infra compartida, ignorá este archivo — el deploy standalone sigue intacto.
+#
+#   Standalone (DB propia, como siempre):
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+#   Con infra compartida (IMPORTANTE: project name único con -p):
+#     docker compose -p ong \
+#       -f docker-compose.yml -f docker-compose.prod.yml \
+#       -f docker-compose.shared-infra.yml up -d backend frontend scheduler
+#
+# ── Topología de red (split, ver README de infra) ──────────────────────────
+# La infra expone DOS redes externas, y la app mantiene su red privada:
+#   - app_network (privada, project-scoped) : frontend <-> backend <-> scheduler
+#   - data_net    (externa, de infra)       : backend/scheduler -> postgres/rabbit
+#   - proxy_net   (externa, de infra)       : reverse-proxy -> frontend
+# El frontend está en app_network + proxy_net (NO en data_net → no llega a la DB).
+# El backend/scheduler en app_network + data_net (NO en proxy_net).
+# Así ningún `frontend`/`backend` de esta app comparte red con el de OTRA app
+# → no hay colisión de DNS interno. Por eso app_network debe ser PRIVADA por
+# app: se fuerza con `-p <appname>` único (de ahí el name interpolado abajo).
+#
+# ── Requisitos antes de usar este overlay ──────────────────────────────────
+#   1. Las redes externas `proxy_net` y `data_net` deben existir (las crea el
+#      repo de infra: `docker network create proxy_net && ... data_net`).
+#   2. Descomentar/setear DATABASE_URL en .env.backend de prod apuntando al
+#      Postgres compartido (host `postgres`), no a `database` local — con el
+#      usuario/base que provisiona `infra/scripts/provision-postgres.sh`.
+#   3. El alias de `frontend` en `proxy_net` se deriva solo de
+#      `${COMPOSE_PROJECT_NAME}` (ver abajo) — NO hace falta tocar nada acá.
+#      Sí hay que agregar el bloque correspondiente en `infra/caddy/Caddyfile`
+#      apuntando a ese alias (`-p ong` → `ong-frontend`).
+#
+# Requiere Docker Compose >= 2.24 (tag de merge `!override`, usada para anular
+# `depends_on`/`ports`/`profiles` heredados del base — los merges de Compose
+# son aditivos y no permiten borrar una clave heredada por omisión).
+
+services:
+  # database/rabbitmq locales: NO se usan en infra compartida. Profile inerte
+  # = un `up -d` sin listar servicios (o con COMPOSE_PROFILES=queues resaca) NO
+  # los levanta, sin importar el .env. Se pueden forzar a mano (`up -d database`).
+  database:
+    profiles: !override ["disabled-in-shared-infra"]
+
+  rabbitmq:
+    profiles: !override ["disabled-in-shared-infra"]
+
+  backend:
+    depends_on: !override {}
+    networks:
+      app_network:
+      data_net:
+
+  scheduler:
+    depends_on: !override {}
+    networks:
+      app_network:
+      data_net:
+
+  frontend:
+    ports: !override []
+    networks:
+      app_network:
+      proxy_net:
+        aliases:
+          - ${COMPOSE_PROJECT_NAME:-app}-frontend   # ej. -p ong -> ong-frontend
+
+networks:
+  # Red privada de ESTA app, project-scoped: con `-p ong` queda `ong_app_network`,
+  # con `-p crypto` queda `crypto_app_network`. Así frontend resuelve a SU backend.
+  app_network:
+    name: ${COMPOSE_PROJECT_NAME:-app}_app_network
+  proxy_net:
+    external: true
+  data_net:
+    external: true

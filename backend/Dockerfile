@@ -76,7 +76,11 @@ RUN composer dump-autoload --optimize
 ENTRYPOINT ["docker-entrypoint"]
 
 HEALTHCHECK --start-period=60s CMD curl -f http://localhost:2019/metrics || exit 1
-CMD [ "sh", "-c", "sleep 3 && frankenphp run --config /etc/caddy/Caddyfile" ]
+# NO envolver en `sh -c`: el entrypoint distingue su bloque de setup (genera JWT,
+# espera la DB, migra) con `[ "$1" = 'frankenphp' ]`. Si el CMD es `sh -c "..."`,
+# $1 pasa a ser `sh` y TODO ese bloque se saltea silenciosamente en prod.
+# La race de DB la cubre el wait-for-db del entrypoint (60 reintentos), no un sleep.
+CMD [ "frankenphp", "run", "--config", "/etc/caddy/Caddyfile" ]
 
 # Dev FrankenPHP image
 FROM frankenphp_base AS frankenphp_dev
@@ -121,4 +125,21 @@ RUN set -eux; \
 	composer dump-autoload --classmap-authoritative --no-dev; \
 	composer dump-env prod; \
 	composer run-script --no-dev post-install-cmd; \
+	chmod +x bin/console; sync;
+
+# Staging FrankenPHP image — inherits from prod, adds seeding tooling (Foundry + fixtures)
+# Prod image is --no-dev so this command is unavailable there: structural guard against
+# accidentally seeding production.
+FROM frankenphp_prod AS frankenphp_staging
+
+ENV APP_ENV=staging
+
+# frankenphp_prod horneó .env.local.php con APP_ENV=prod compilado (composer
+# dump-env prod) — heredarlo pisaría el ENV de arriba. Hay que borrarlo antes
+# del install para que el entorno de staging se resuelva en runtime.
+RUN set -eux; \
+	rm -f .env.local.php; \
+	composer install --no-cache --prefer-dist --no-autoloader --no-scripts --no-progress; \
+	composer dump-autoload --classmap-authoritative; \
+	composer run-script post-install-cmd; \
 	chmod +x bin/console; sync;

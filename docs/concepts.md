@@ -397,3 +397,64 @@ pending → failed
 1. **Idempotencia**: antes de enriquecer, el handler verifica que `status == pending`. Si es `enriched` o `failed`, no llama a la API de IA. Esto evita costos duplicados si un mensaje se reencola o se reprocesa.
 2. **Observabilidad**: un `SELECT COUNT(*) GROUP BY status` te dice instantáneamente cuántas noticias están esperando enriquecimiento, cuántas están listas y cuántas fallaron.
 3. **Filtros del dashboard**: el front puede pedir solo noticias `enriched` para mostrar.
+
+## Foundry + Doctrine Fixtures — seeding layer
+
+**Qué es:** capa de testing post-deploy para poblar bases de datos en staging, con datos representativos pero falsos. Equivalente Symfony al par `seeders + factories` de Laravel.
+
+### Stack
+
+| Componente | Rol | Equivalente Laravel |
+|---|---|---|
+| `doctrine/doctrine-fixtures-bundle` | Runner: `bin/console doctrine:fixtures:load` | `php artisan db:seed` |
+| `zenstruck/foundry` | Factories tipadas con estados y relaciones fluidas | `HasFactory` / Faker integrado |
+| `fakerphp/faker` | Generador de datos falsos (viene con Foundry) | `Faker` |
+
+### Cómo funciona
+
+```
+AppFixtures (FixtureGroupInterface)
+  └── grupos: ['staging', 'dev']
+       └── llama factories:  MemberFactory::createMany(15)
+                             ProjectFactory::createMany(5)
+```
+
+`AppFixtures` implementa `FixtureGroupInterface` → permite segmentar con `--group=staging` (QA/devs) vs `--group=dev` (desarrollo local) sin peligro de correr datos de prueba en prod.
+
+### Guard de producción — target Docker `frankenphp_staging`
+
+Las dependencias de seeding son `require-dev`. La imagen prod se compila con `--no-dev`, así que **el comando `doctrine:fixtures:load` no existe en prod**. Es una garantía estructural, no una convención:
+
+```dockerfile
+# Hereda de prod (no dev): mantiene representatividad del entorno
+FROM frankenphp_prod AS frankenphp_staging
+RUN composer install ...   # re-instala incluyendo dev-deps
+```
+
+Nunca hereda de `frankenphp_dev` — staging debe ser prod + tooling de seeding, no dev + tooling de seeding. Si diverge de prod, deja de testear lo que realmente corre.
+
+### Uso (en staging)
+
+> ⚠️ **`fixtures:load` PURGA la base antes de cargar** (DELETE/TRUNCATE de todas las
+> tablas, salvo `--append`). Correr SOLO contra una DB de staging dedicada, **nunca**
+> contra la DB de una app productiva en infra compartida. El guard de la imagen
+> `--no-dev` no protege esto. Ver Epic E, "Deuda crítica": staging debe ser una app
+> aparte a nivel infra, con su propia DB.
+
+```bash
+# 1. Construir imagen staging
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  build --target frankenphp_staging backend
+
+# 2. Cargar fixtures (contra la DB de STAGING, no la de prod)
+docker exec <app>-staging-backend-1 bin/console doctrine:fixtures:load \
+  --group=staging --no-interaction
+```
+
+### Cómo extender en un fork
+
+1. Crear factories con `bin/console make:factory` (o a mano en `src/Factory/`).
+2. Agregar las llamadas en `AppFixtures::load()` o en `AppStory::build()`.
+3. `AppStory` sirve para escenarios nombrados y puede llamarse desde fixtures: `AppStory::load()`.
+
+Ver `src/DataFixtures/AppFixtures.php` y `src/Story/AppStory.php` para el esqueleto con comentarios.

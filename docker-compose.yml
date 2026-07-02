@@ -18,6 +18,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    profiles: ["queues"]
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-app}
@@ -43,8 +44,6 @@ services:
     depends_on:
       database:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
     expose:
       - "80/tcp"
     networks:
@@ -56,13 +55,17 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Opt-in: solo arranca si se activa el profile `cron` (--profile cron o
+    # listándolo explícito en `up`). Una app sin tareas periódicas no lo levanta
+    # y no paga un container corriendo un crontab vacío. Mismo criterio que
+    # `rabbitmq` (profile `queues`). Cada fork que necesite cron activa el
+    # profile y llena `backend/scheduler/crontab`.
+    profiles: ["cron"]
     restart: unless-stopped
     env_file:
       - .env
       - .env.backend
     depends_on:
-      rabbitmq:
-        condition: service_healthy
       database:
         condition: service_healthy
     networks:

@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Command;
+
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Mercure\HubInterface;
+use Symfony\Component\Mercure\Update;
+
+#[AsCommand(name: 'app:mercure:test', description: 'Publish a test message to the Mercure hub')]
+final class MercurePublishTestCommand extends Command
+{
+    public function __construct(private readonly HubInterface $hub)
+    {
+        parent::__construct();
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $update = new Update(
+            'https://oliva.dev/test',
+            json_encode(['type' => 'test', 'message' => 'mercure-verification', 'ts' => time()])
+        );
+
+        try {
+            $id = $this->hub->publish($update);
+            $output->writeln("<info>Published OK. Message ID: $id</info>");
+            return Command::SUCCESS;
+        } catch (\Throwable $e) {
+            $output->writeln("<error>Publish failed: {$e->getMessage()}</error>");
+            return Command::FAILURE;
+        }
+    }
+}

@@ -5,7 +5,25 @@ services:
       target: frankenphp_prod
     restart: unless-stopped
     environment:
-      - APP_ENV=production
+      - APP_ENV=prod
+    volumes:
+      # Claves JWT persistidas en el host (secreto gestionado, no en la imagen):
+      # el entrypoint las genera una sola vez en el primer boot si el dir está
+      # vacío, y de ahí en más persisten y NUNCA se regeneran (recrear el
+      # container no desloguea a nadie). Backupear ./secrets/jwt + JWT_PASSPHRASE.
+      - ./secrets/jwt:/app/config/jwt
+
+  scheduler:
+    image: app-backend-prod:1.0
+    build:
+      target: frankenphp_prod
+    restart: unless-stopped
+    environment:
+      - APP_ENV=prod
+    # El scheduler corre supercronic (cron), NO el server frankenphp. Sin este
+    # override heredaría el CMD del backend. Con $1=supercronic el bloque de
+    # setup del entrypoint se saltea a propósito (solo el backend migra/genera).
+    command: ["supercronic", "/etc/supercronic/crontab"]
 
   frontend:
     image: app-frontend-prod:1.0

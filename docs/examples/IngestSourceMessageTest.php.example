@@ -1,0 +1,23 @@
+<?php
+
+namespace App\Tests\Unit\Message;
+
+use App\Message\IngestSourceMessage;
+use PHPUnit\Framework\TestCase;
+
+class IngestSourceMessageTest extends TestCase
+{
+    public function testSourceIdIsPreserved(): void
+    {
+        $message = new IngestSourceMessage('example-source-a');
+
+        $this->assertSame('example-source-a', $message->sourceId);
+    }
+
+    public function testSourceIdCanBeEmpty(): void
+    {
+        $message = new IngestSourceMessage('');
+
+        $this->assertSame('', $message->sourceId);
+    }
+}

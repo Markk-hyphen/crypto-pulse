@@ -1,0 +1,58 @@
+# Overlay de staging — apila sobre docker-compose.yml + docker-compose.prod.yml
+# (+ docker-compose.shared-infra.yml si la app usa infra compartida).
+#
+# Diferencia con prod: la imagen del backend usa el target `frankenphp_staging`,
+# que hereda de frankenphp_prod y suma las dev-deps (Foundry + fixtures-bundle)
+# necesarias para correr `doctrine:fixtures:load`. El tag de imagen es distinto
+# (app-backend-staging:1.0) para no pisar la imagen de prod en el host.
+#
+# Staging es UNA APP MÁS en el VPS: tiene su propia DB desechable en el Postgres
+# compartido, su propio project name (-p <app>-staging) y su propio DATABASE_URL.
+# Levantarlo NO interfiere con el stack de producción.
+#
+#   Con infra compartida (caso habitual en VPS):
+#     docker compose -p <app>-staging \
+#       -f docker-compose.yml -f docker-compose.prod.yml \
+#       -f docker-compose.shared-infra.yml \
+#       -f docker-compose.staging.yml up -d
+#
+#   Standalone (sin infra compartida, para pruebas locales):
+#     docker compose -p <app>-staging \
+#       -f docker-compose.yml -f docker-compose.prod.yml \
+#       -f docker-compose.staging.yml up -d
+
+services:
+  backend:
+    image: app-backend-staging:1.0
+    build:
+      target: frankenphp_staging
+    # prod.yml hardcodea environment: APP_ENV=prod en backend/scheduler.
+    # Precedencia de Compose: environment: > env_file: > ENV de la imagen — sin
+    # este override, ese environment pisaría .env.staging y quedaría en prod
+    # pese al env_file. Síntoma real: fixtures:load fallaba ("command not
+    # defined") porque prod no está en bundles.php.
+    environment:
+      - APP_ENV=staging
+    # !override reemplaza (no concatena) la lista del base: evita duplicados.
+    # Requiere Docker Compose >= 2.24 (mismo requisito que shared-infra.yml).
+    env_file: !override
+      - .env
+      - .env.backend
+      - .env.staging
+
+  scheduler:
+    image: app-backend-staging:1.0
+    build:
+      target: frankenphp_staging
+    environment:
+      - APP_ENV=staging
+    env_file: !override
+      - .env
+      - .env.backend
+      - .env.staging
+
+  # Sin declarar este servicio, staging heredaría app-frontend-prod:1.0 de
+  # prod.yml (mismo target/build que prod, solo cambia el tag para no pisar
+  # la imagen de prod en el host).
+  frontend:
+    image: app-frontend-staging:1.0

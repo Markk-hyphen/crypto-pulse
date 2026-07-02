@@ -1,0 +1,32 @@
+<?php
+
+namespace App\Command;
+
+use App\Message\IngestSourceMessage;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Messenger\MessageBusInterface;
+
+#[AsCommand(name: 'app:sources:poll', description: 'Poll configured sources and enqueue ingestion jobs')]
+class SourcesPollCommand extends Command
+{
+    // Stub source list — replace with real sources for your domain
+    private const SOURCES = ['example-source-a', 'example-source-b', 'example-source-c'];
+
+    public function __construct(private readonly MessageBusInterface $bus)
+    {
+        parent::__construct();
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        foreach (self::SOURCES as $sourceId) {
+            $this->bus->dispatch(new IngestSourceMessage($sourceId));
+            $output->writeln(sprintf('[%s] Enqueued: %s', date('Y-m-d H:i:s'), $sourceId));
+        }
+
+        return Command::SUCCESS;
+    }
+}
