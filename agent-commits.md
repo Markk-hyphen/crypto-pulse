@@ -525,3 +525,40 @@ El usuario pidió explicación de RabbitMQ. No estaba en `concepts.md`. Se agreg
 **Mount del `.env` en dev:** el `env_file` de Docker Compose inyecta variables de entorno al proceso, pero no crea un archivo en disco. Symfony intenta leer `/app/.env` como archivo físico en modo dev. Sin el mount, `bin/console` falla con `PathException`. En producción esto no ocurre porque `composer dump-env prod` genera `.env.local.php` (binario compilado) que toma precedencia sobre `.env`.
 
 **Preservación del demo de Mercure:** `live.php` y `live.js` son prueba viva de que el hub Mercure funciona end-to-end. Se preservan como activo de la codebase (documentado en §1 del plan).
+
+## [SYNC] merge: sync Oliva main → release/plan-market-pulse (40 commits de framework)
+**Hash:** `3190361629df491f3839721a8d2ee27935aa635f`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docker-compose.yml` | conflicto→main | Profiles `queues` (rabbitmq) y `cron` (scheduler); backend/scheduler desacoplados de rabbitmq (un `depends_on` cross-profile rompería el `up` sin ese profile) |
+| `docker-compose.override.yml` | conflicto→main | Worker bajo profile `queues`; `APP_ENV: dev` (M1) en backend/scheduler/worker |
+| `.env.example` | conflicto→unión | Base main (COMPOSE_PROFILES, APP_ENV corto, refactor DATABASE_URL, bloque seeding) + `COMPOSE_PROFILES=queues,cron` como default CMP + `MERCURE_URL=http://backend` (fix 1.5) + keys ANTHROPIC/VOYAGE |
+| `.env.backend` | conflicto→unión | Template shared-infra de main adaptado a CMP (`crypto_user`/`crypto_db` + override `RABBITMQ_DSN` con vhost `crypto`, comentados) + Mercure interno/público de CMP + keys |
+| `.github/workflows/ci.yml` | conflicto→main | CI reescrito: bake + caché GHA + guard `APP_ENV=prod` |
+| `.gitignore` | conflicto→main | Superset: suma `.env.staging`, `secrets/`, `rules-claude.md` |
+| `CLAUDE.md` | conflicto→unión manual | Reescrito como guía de CMP-sobre-Oliva: sección de sync one-way, profiles, identidad en infra (`-p crypto`), runbooks resumidos (canónico en main), deuda actualizada (M2, worker prod), protocolos con `docs/concepts.md` |
+| `agent-commits.md` | conflicto→CMP | Es el log de CMP; el de main es otra historia |
+| `backend/composer.json` / `.lock` / `symfony.lock` | conflicto→main | Superset verificado: CMP + doctrine-fixtures-bundle, zenstruck/foundry, faker (única pérdida: content-hash, regenerado por main) |
+| `backend/config/bundles.php` | conflicto→main | Superset: + FixturesBundle y FoundryBundle (dev/test/staging) |
+| `backend/config/reference.php` | conflicto→regenerado | Tomado de main y regenerado por Flex en el primer boot post-merge (`when@dev`/`when@staging` correctos) |
+| `backend/config/services.yaml` | conflicto→CMP | Superset CMP: todo el wiring del dominio (adapters RSS taggeados, providers, tagged_iterator) |
+| `backend/config/packages/{cache,doctrine,messenger}.yaml` | conflicto→CMP | CMP = main + pool `enrichment.cache` / `mapping_types: vector` / routing activo de mensajes |
+| `backend/phpunit.dist.xml` | conflicto→main | + extensión FoundryExtension |
+| `backend/scheduler/crontab` | conflicto→CMP | `app:sources:poll` cada 5' (main lo tiene vacío) |
+| `backend/config/services_development.yaml` → `services_dev.yaml` | renombrado (M2) | Symfony carga `services_{APP_ENV}.yaml`; con APP_ENV=dev el nombre viejo dejaba de aplicar el alias Null y dev gastaba tokens de Anthropic |
+| `concepts.md` → `docs/concepts.md` | movido+fusión (D3) | Voz CMP (dominio) + sección Foundry de main appendeada; main tenía una versión genericizada del mismo contenido |
+| shared-infra, staging, scripts, fixtures | heredados limpios | `docker-compose.shared-infra.yml`, `docker-compose.staging.yml`, `.env.staging.example`, `scripts/{deploy,down,deploy-staging,down-staging}.sh`, `src/DataFixtures/`, `src/Story/`, `zenstruck_foundry.yaml`, `claude-commands.md`, `README.md`, Dockerfile con stage `frankenphp_staging` |
+
+### Justificación
+
+CMP quedó congelado ~mes y medio mientras Oliva (`main`) avanzaba 40 commits (profiles, shared-infra, staging, APP_ENV corto, CI). Merge-base anterior a versionar el backend → 19 conflictos `add/add`. **Merge y no rebase** porque el rebase reescribiría los 38 hashes de CMP que este log registra como verdad, y re-presentaría los `add/add` commit por commit (análisis completo en `SYNC-NOTES.md` §3).
+
+Política de resolución (§9): **dominio/pipeline gana CMP; framework/infra gana main; docs unión manual** — verificada archivo por archivo con `diff` de ambas versiones antes de resolver (los "superset" no se asumieron, se comprobaron: cero líneas exclusivas de CMP perdidas en los archivos resueltos a main).
+
+Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_PROFILES=queues,cron` en vez de pelearse con el modelo opt-in de Oliva. **D2** (resuelta por Marcos pre-merge) — identidad en infra compartida: `crypto_db`/`crypto_user` + vhost `crypto` + `-p crypto`; templates comentados en `.env.backend` listos para el VPS. **D3** — `docs/concepts.md` conservando la voz de dominio de CMP (la versión de main deriva de ella).
+
+**Verificación runtime post-merge (rehecha porque el merge toca justo lo que arranca dev):** 6 servicios healthy con profiles activos; `debug:container EnrichmentProviderInterface` en dev → `NullEnrichmentProvider` (M2 efectivo); migraciones al día; `/health` ok; hub Mercure 200; worker consumiendo; PHPUnit 2/2; poll e2e del scheduler ejecutado a las 16:00 con 164 items `enriched` y 0 `pending` en DB.
