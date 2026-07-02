@@ -66,5 +66,10 @@ services:
         arguments:
             $apiKey: '%env(VOYAGE_API_KEY)%'
 
+    App\Provider\AnthropicMarketNowProvider:
+        arguments:
+            $apiKey: '%env(ANTHROPIC_API_KEY)%'
+
     App\Provider\EnrichmentProviderInterface: '@App\Provider\AnthropicEnrichmentProvider'
     App\Provider\EmbeddingProviderInterface: '@App\Provider\VoyageEmbeddingProvider'
+    App\Provider\MarketNowProviderInterface: '@App\Provider\AnthropicMarketNowProvider'

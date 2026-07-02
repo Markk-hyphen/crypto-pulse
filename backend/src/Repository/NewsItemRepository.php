@@ -63,6 +63,27 @@ class NewsItemRepository extends ServiceEntityRepository
     }
 
     /**
+     * Most recently enriched items, newest first — feeds the Market Now
+     * aggregate (2.4). Fetch-joined for the same reason as findFeedPage: one
+     * query, no N+1 when reading Enrichment fields per item.
+     *
+     * @return list<NewsItem>
+     */
+    public function findRecentEnrichedForSummary(int $limit): array
+    {
+        return $this->createQueryBuilder('n')
+            ->innerJoin('n.enrichment', 'e')
+            ->addSelect('e')
+            ->andWhere('n.status = :status')
+            ->setParameter('status', NewsItemStatus::Enriched)
+            ->orderBy('n.publishedAt', 'DESC')
+            ->addOrderBy('n.id', 'DESC')
+            ->setMaxResults($limit)
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Pending items that have been sitting for at least $minAge — i.e. their
      * EnrichItemMessage was likely lost (broker down after the ingest flush).
      * The age floor keeps the recovery sweep from double-dispatching items

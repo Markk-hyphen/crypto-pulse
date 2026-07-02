@@ -2,3 +2,4 @@ services:
     # Use the null provider in dev so no API tokens are spent during local work.
     # Override with ENRICHMENT_PROVIDER=anthropic if you need to test the real API.
     App\Provider\EnrichmentProviderInterface: '@App\Provider\NullEnrichmentProvider'
+    App\Provider\MarketNowProviderInterface: '@App\Provider\NullMarketNowProvider'

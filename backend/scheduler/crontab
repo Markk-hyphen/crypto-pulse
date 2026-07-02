@@ -1,3 +1,4 @@
 */5 * * * * bin/console app:sources:poll -v
 */15 * * * * bin/console app:enrich:requeue-pending
 */2 * * * * bin/console app:market:poll -v
+*/10 * * * * bin/console app:market:now -v

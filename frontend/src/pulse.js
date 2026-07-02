@@ -6,6 +6,9 @@ const TOPIC     = 'crypto/feed';
 const FEED_URL  = '/api/feed?limit=30';
 const MAX_CARDS = 60;
 
+const MARKET_NOW_TOPIC = 'crypto/market-now';
+const MARKET_NOW_URL   = '/api/market-now';
+
 // A proxied EventSource can go "zombie": the upstream (backend/hub) dies but
 // the proxy keeps the browser side open, so onerror never fires and the page
 // shows LIVE while silently missing every event. Watchdog: if nothing arrives
@@ -21,6 +24,10 @@ let esAttempts   = 0; // failed EventSource connections in a row
 let wasDown      = false;
 let lastActivity = Date.now(); // last open/message on the EventSource
 
+let marketNowSource;
+let marketNowEl;
+let marketNowEsAttempts = 0; // failed EventSource connections in a row
+
 document.addEventListener('DOMContentLoaded', () => {
     feedEl = document.getElementById('pulse-feed');
     loadInitial();
@@ -34,6 +41,10 @@ document.addEventListener('DOMContentLoaded', () => {
             connect();
         }
     }, Math.min(WATCHDOG_MS / 2, 30000));
+
+    marketNowEl = document.getElementById('market-now');
+    loadMarketNow();
+    connectMarketNow();
 });
 
 // Exponential backoff, capped: 1× base, 2×, 4×… up to 30s. Keeps a dead
@@ -87,6 +98,53 @@ function connect() {
         lastActivity = Date.now();
         try { upsert(JSON.parse(data)); } catch (_) {}
     };
+}
+
+// ─── Market Now (2.4) ────────────────────────────────────────────────────────
+// Separate EventSource on its own topic — the feed stream above already has a
+// watchdog + full reconnect story; Market Now is a low-frequency, non-critical
+// panel, so a plain backoff-retry on error is enough (no watchdog needed).
+
+async function loadMarketNow() {
+    try {
+        const res = await fetch(MARKET_NOW_URL);
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (data) renderMarketNow(data);
+    } catch (_) {}
+}
+
+function connectMarketNow() {
+    const url = new URL(HUB, window.location.origin);
+    url.searchParams.append('topic', MARKET_NOW_TOPIC);
+
+    marketNowSource = new EventSource(url.toString());
+    marketNowSource.onopen = () => { marketNowEsAttempts = 0; };
+    marketNowSource.onerror = () => {
+        marketNowSource.close();
+        setTimeout(connectMarketNow, backoff(5000, marketNowEsAttempts++));
+    };
+    marketNowSource.onmessage = ({ data }) => {
+        try { renderMarketNow(JSON.parse(data)); } catch (_) {}
+    };
+}
+
+function renderMarketNow(data) {
+    if (!marketNowEl) return;
+    const summaryEl = marketNowEl.querySelector('.pulse-summary');
+    summaryEl.classList.remove('pulse-summary--pending');
+    summaryEl.textContent = data.summary ?? '';
+
+    let timeEl = marketNowEl.querySelector('.pulse-time');
+    if (!timeEl && data.createdAt) {
+        timeEl = document.createElement('span');
+        timeEl.className = 'pulse-time';
+        marketNowEl.querySelector('.pulse-card-meta').appendChild(timeEl);
+    }
+    if (timeEl && data.createdAt) {
+        timeEl.title = data.createdAt;
+        timeEl.textContent = when(data.createdAt);
+    }
 }
 
 // Catch-up after a reconnect: merge the feed via upsert (oldest first, so
