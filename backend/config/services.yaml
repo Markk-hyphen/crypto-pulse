@@ -49,6 +49,14 @@ services:
         arguments:
             $rabbitmqDsn: '%env(RABBITMQ_DSN)%'
 
+    App\Provider\CoinGeckoProvider:
+        arguments:
+            $assetIds:
+                bitcoin: 'BTC'
+                ethereum: 'ETH'
+
+    App\Provider\MarketDataProviderInterface: '@App\Provider\CoinGeckoProvider'
+
     App\Provider\AnthropicEnrichmentProvider:
         arguments:
             $apiKey: '%env(ANTHROPIC_API_KEY)%'
