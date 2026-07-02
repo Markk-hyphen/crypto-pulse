@@ -10,12 +10,15 @@ framework:
                         name: ingest
                         type: direct
                         default_publish_routing_key: ingest
+                    # No x-dead-letter-exchange here: Messenger's retry does a
+                    # broker-level reject on EVERY retry hop, so a queue-level
+                    # DLX duplicates each failing message (~3 noise copies) into
+                    # `failed` alongside the single stamped copy the
+                    # failure_transport publishes. The failure_transport IS the
+                    # dead-letter path. (Decision 1.8 — see agent-commits.md.)
                     queues:
                         ingest:
                             binding_keys: [ingest]
-                            arguments:
-                                x-dead-letter-exchange: failed
-                                x-dead-letter-routing-key: failed
                 retry_strategy:
                     max_retries: 3
                     delay: 1000
@@ -30,10 +33,7 @@ framework:
                         default_publish_routing_key: enrich
                     queues:
                         enrich:
-                            binding_keys: [enrich]
-                            arguments:
-                                x-dead-letter-exchange: failed
-                                x-dead-letter-routing-key: failed
+                            binding_keys: [enrich] # sin DLX — misma razón que ingest
                 retry_strategy:
                     max_retries: 3
                     delay: 2000
@@ -45,9 +45,22 @@ framework:
                     exchange:
                         name: failed
                         type: direct
+                        # Without this, the failure transport publishes with an
+                        # empty routing key that matches no binding on a direct
+                        # exchange → RabbitMQ drops the message silently and
+                        # failed messages are simply LOST (latent 0.5 bug,
+                        # masked until 1.8 by the broker DLX duplicates).
+                        default_publish_routing_key: failed
                     queues:
                         failed:
-                            binding_keys: [failed]
+                            # `failed` covers direct publishes to the transport.
+                            # `ingest`/`enrich` are needed because AmqpSender
+                            # re-uses the ORIGINAL routing key when it forwards
+                            # a consumed message to the failure transport
+                            # (AmqpStamp::createFromAmqpEnvelope) — without
+                            # these bindings the forward is unroutable and the
+                            # failed message is silently dropped.
+                            binding_keys: [failed, ingest, enrich]
 
         routing:
             'App\Message\IngestSourceMessage': ingest

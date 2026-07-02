@@ -21,10 +21,25 @@ class RssAdapter implements SourceAdapterInterface
     {
         $response = $this->httpClient->request('GET', $this->feedUrl, [
             'timeout' => 10,
-            'headers' => ['Accept' => 'application/rss+xml, application/xml, text/xml'],
+            'headers' => [
+                'Accept'     => 'application/rss+xml, application/xml, text/xml',
+                'User-Agent' => 'CryptoMarketPulse/1.0 (news aggregator)',
+            ],
         ]);
 
         $xml = new \SimpleXMLElement($response->getContent());
+
+        // A moved/rebranded feed (e.g. Atom, HTML error page parsed as XML) must
+        // fail loudly so Messenger retries/DLXes it — not yield an empty set.
+        if (!isset($xml->channel)) {
+            throw new \RuntimeException(\sprintf(
+                'Feed "%s" (%s) is not RSS 2.0: root element is <%s>, no <channel> found',
+                $this->sourceId,
+                $this->feedUrl,
+                $xml->getName(),
+            ));
+        }
+
         $items = $xml->channel->item ?? [];
 
         foreach ($items as $item) {

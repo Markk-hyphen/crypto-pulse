@@ -61,4 +61,23 @@ class NewsItemRepository extends ServiceEntityRepository
 
         return ['items' => $items, 'total' => $total];
     }
+
+    /**
+     * Pending items that have been sitting for at least $minAge — i.e. their
+     * EnrichItemMessage was likely lost (broker down after the ingest flush).
+     * The age floor keeps the recovery sweep from double-dispatching items
+     * whose message is simply still waiting in the queue.
+     *
+     * @return list<NewsItem>
+     */
+    public function findStalePending(\DateInterval $minAge): array
+    {
+        return $this->createQueryBuilder('n')
+            ->andWhere('n.status = :status')
+            ->andWhere('n.createdAt <= :cutoff')
+            ->setParameter('status', NewsItemStatus::Pending)
+            ->setParameter('cutoff', (new \DateTimeImmutable())->sub($minAge))
+            ->getQuery()
+            ->getResult();
+    }
 }

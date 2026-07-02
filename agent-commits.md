@@ -618,3 +618,48 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Sin filtros ni paginación en la UI:** el plan los difiere a 2.6; agregar controles ahora sería scope creep. El tope de 60 cards en memoria evita crecimiento sin límite en sesiones largas.
 
 **Verificación (gate del paso cumplido):** Playwright + Chrome headless con 2 pestañas: carga inicial 30 cards + LIVE en ambas; item re-enriquecido vía pipeline real (reset a pending + `app:enrich:requeue-pending`) apareció actualizado en ambas pestañas sin recargar; build prod multi-page OK. De paso quedó demostrado el camino DLX: un insert duplicado agotó 3 retries y fue al failure transport sin perder el mensaje.
+
+## [PASO 1.8] feat: robustez del pipeline (retries, DLX saneado, timeouts, degradación del front)
+**Hash:** `(pendiente — se registra en el commit siguiente)`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/config/packages/messenger.yaml` | modificado | Quita `x-dead-letter-exchange` de `ingest`/`enrich`; agrega `default_publish_routing_key: failed` al transport `failed` y bindings `[failed, ingest, enrich]` a su cola |
+| `backend/config/packages/framework.yaml` | modificado | `http_client.default_options`: `timeout: 10`, `max_duration: 60`, `retry_failed` (2 retries con backoff a nivel HTTP) |
+| `backend/src/Command/FailedInspectCommand.php` | nuevo | `app:failed:inspect`: peek NO destructivo de la cola `failed` (basic.get sin ack + nack-requeue); decodifica el envelope (stripslashes + unserialize) y muestra clase, transport de origen, retries y error |
+| `backend/src/Adapter/RssAdapter.php` | modificado | Header `User-Agent`; si el XML no tiene `<channel>` (Atom, HTML de error) lanza RuntimeException en vez de yield vacío silencioso |
+| `backend/src/MessageHandler/EnrichItemHandler.php` | modificado | `hub->publish()` en try/catch: fallo de Mercure se loguea y NO manda a retry/DLX un item ya persistido |
+| `backend/src/Command/EnrichRequeueCommand.php` | modificado | Opción `--min-age` (minutos, default 10): solo re-encola pending "viejos" |
+| `backend/src/Repository/NewsItemRepository.php` | modificado | `findStalePending(DateInterval)`: pending con `createdAt` anterior al cutoff |
+| `backend/scheduler/crontab` | modificado | Sweep de recovery: `app:enrich:requeue-pending` cada 15 min |
+| `backend/config/services.yaml` | modificado | Wiring de `$rabbitmqDsn` para el comando de inspección |
+| `backend/tests/Unit/Adapter/RssAdapterTest.php` | nuevo | 3 tests con `MockHttpClient`: parsea RSS + strip de markup, manda User-Agent, feed Atom → excepción |
+| `frontend/src/pulse.js` | modificado | Backoff exponencial (cap 30s) en REST y EventSource; resync vía REST al reconectar (merge con `upsert`, no clobber); **watchdog anti-zombie**: sin actividad SSE por 300s (override `?watchdog=N`) → teardown + reconexión + resync |
+| `PLAN-MARKET-PULSE.md` | modificado | ✅ 1.8 + ✅ GATE Fase 1 (con evidencia) + checkbox §12 de workers |
+| `CLAUDE.md` | modificado | Fase 1 completa; próximo paso → 2.1; deudas dual-write y RssAdapter saldadas; decisión dead-letter en "Decisiones cerradas" |
+| `agent-commits.md` | modificado | Esta entrada |
+
+### Justificación
+
+**Qué ya existía y no se tocó:** los retries con backoff exponencial (`retry_strategy` en ambos transports, desde 0.5) y la idempotencia del handler (guard por `status` + caché LLM por `contentHash`, desde 1.4/1.5). 1.8 verificó eso y cerró los huecos alrededor.
+
+**Decisión: el DLX del broker se elimina; el failure transport de Symfony es el único dead-letter path (opción elegida por Marcos entre 3).** La verificación con un feed roto reveló que cada mensaje fallado dejaba **4 copias** en `failed`: Messenger, al reintentar, hace `basic.reject` del mensaje consumido después de republicar la copia demorada — y el `x-dead-letter-exchange` de la cola convertía cada reject intermedio en una copia más. Los dos mecanismos de dead-letter (DLX del broker, de 0.5, y failure transport de Symfony) se pisaban. Alternativas descartadas: (b) DLX a una cola separada — el ruido se muda, no desaparece; (c) documentar el ruido — crece 4x por fallo y ensucia `messenger:failed:retry`. Costo aceptado: un mensaje *indecodificable* (garbage publicado a mano en la cola) ahora se descarta en vez de capturarse — caso que no ocurre en el pipeline real. Operativo: los args de cola son inmutables → en dev se borraron/recrearon `ingest`/`enrich`; en el VPS no hay nada que migrar (vhost nuevo).
+
+**Bug latente de 0.5 encontrado y arreglado — los mensajes fallados se PERDÍAN:** el transport `failed` publicaba sin `default_publish_routing_key` a un exchange direct cuya cola bindea `failed` → unroutable → RabbitMQ lo descartaba en silencio. Nunca se notó porque las copias del DLX del broker enmascaraban la pérdida (lo que había en la cola era el ruido, no el mensaje real). Al quitar el DLX, la cola quedó vacía tras un fallo — eso destapó el bug. Segundo matiz: aun con routing key configurada, `AmqpSender` reusa la **routing key original** (`ingest`/`enrich`) al redeliver hacia el failure transport (`AmqpStamp::createFromAmqpEnvelope`) — por eso la cola `failed` bindea las tres keys. Resultado verificado: 1 fallo definitivo = exactamente 1 mensaje en `failed`, con stamps de error, origen y reintentable.
+
+**Inspección sin consumo (`app:failed:inspect`):** el failure transport AMQP no es listable (`ListableReceiverInterface`), así que `messenger:failed:show`/`remove` no funcionan — solo `retry`. El comando hace basic.get sin ack y nack-requeue al final: se puede mirar qué hay parkeado sin tocarlo (verificado: 2 corridas seguidas, mismo contenido). Gotcha documentado en el docblock: el nack-requeue deja el flag `redelivered`, que un `retry` posterior rutea por un hop extra de republish (inofensivo). De paso el comando encontró y ayudó a limpiar un mensaje fósil real (violación de unique de antes de la guarda de idempotencia).
+
+**Recovery del dual-write con `--min-age`:** el sweep periódico de `requeue-pending` sin filtro de edad podría re-despachar un item cuyo mensaje sigue legítimamente en cola (recién ingestado) → doble enrich concurrente. El floor de 10 min hace que el sweep solo agarre huérfanos reales (broker caído tras el `flush()` de ingesta).
+
+**Mercure publish tolerante en el handler:** el publish ocurre después del `flush()`. Si el hub falla y el handler lanza, el mensaje va a retry por datos que ya están a salvo — y el retry no-opearía en la guarda de idempotencia, perdiendo el evento igual. Try/catch + log: el evento se pierde (los clientes lo recuperan por resync REST), el mensaje se ackea.
+
+**Watchdog anti-zombie en el front (hallazgo de la verificación):** matar el backend con la página abierta demostró que `EventSource.onerror` **nunca dispara** si hay un proxy en el medio que mantiene abierto el lado del browser — la página muestra "LIVE" mientras pierde todos los eventos. Ningún backoff sirve si no te enterás del corte. Watchdog: sin actividad SSE por 300s → teardown + reconexión + resync REST (que además cubre los eventos perdidos durante cualquier corte). Falso positivo (noticias lentas) = un reconnect barato cada 5 min. Verificado con Playwright: restart del backend → conexión zombie → watchdog reconecta y dispara el resync.
+
+**Capas de retry deliberadas:** HTTP (`retry_failed`, 2 intentos — absorbe 429/5xx/blips de red sin churn de mensajes) por debajo de Messenger (`retry_strategy`, 3 intentos con delay — absorbe fallos más largos) por debajo del failure transport (parking permanente inspeccionable). Cada capa maneja una escala de fallo distinta.
+
+**Conceptos que ejercita este paso** (para la doc integral futura): retry layering HTTP vs Messenger vs failure transport (`framework.yaml` / `messenger.yaml`); semántica AMQP de exchange direct + routing keys + bindings y mensajes unroutable (`messenger.yaml`, transport `failed`); basic.get/ack/nack y el flag redelivered (`FailedInspectCommand`); dual-write DB↔broker y sweeps de recovery (`EnrichRequeueCommand` + crontab); idempotencia y por qué el publish va fuera del camino de fallo (`EnrichItemHandler`); degradación del cliente SSE: zombie connections, watchdog, resync (`pulse.js`).
+
+**Verificación (gate del paso cumplido):** (1) worker muerto + poll → 2 mensajes esperan en `ingest`, ningún dato perdido; al reanudar drena el backlog. (2) Feed roto (adapter temporal a host inexistente) → 3 retries con backoff exponencial visible en logs (1s/2s/4s) → exactamente 1 mensaje en `failed`, inspeccionable y con error legible. (3) `app:failed:inspect` x2 → no consume. (4) Restart del backend con dashboard abierto → watchdog detecta el zombie, reconecta y resincroniza (Playwright). (5) PHPUnit 8/8, `lint:container` OK, build prod de Vite OK.

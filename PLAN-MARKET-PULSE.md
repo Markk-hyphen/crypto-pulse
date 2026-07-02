@@ -215,11 +215,11 @@ El **hub ya funciona**. Solo falta el publisher: instalar `symfony/mercure-bundl
 - *Acciones:* nueva vista (reusar patrón `live.js`/Bootstrap): carga inicial vía REST + suscripción Mercure a `crypto/feed`; cada card muestra resumen IA, sentiment, etiquetas/tickers, fuente, timestamp; indicador LIVE/RECONNECTING.
 - *Verificación:* abrir 2 pestañas; entra noticia real; aparece enriquecida y se actualiza en vivo en ambas sin recargar.
 
-**1.8 — Robustez del pipeline**
+**✅ 1.8 — Robustez del pipeline**
 - *Acciones:* reintentos con backoff en Messenger; idempotencia; manejo de DLX (comando para reprocesar/inspeccionar); timeouts de http-client; degradación con gracia del front.
 - *Verificación:* matar el worker / cortar la API LLM no pierde datos; al reanudar, procesa el backlog.
 
-**GATE Fase 1 (DEMO):** 2 pestañas → entra noticia cripto real → en segundos aparece enriquecida por IA y se actualiza en vivo en ambas. Pipeline resiste caídas.
+**✅ GATE Fase 1 (DEMO):** 2 pestañas → entra noticia cripto real → en segundos aparece enriquecida por IA y se actualiza en vivo en ambas. Pipeline resiste caídas. *(2 pestañas en vivo verificado en 1.7; resiliencia verificada en 1.8: worker muerto → backlog en cola → drena al reanudar; feed roto → 3 retries con backoff → 1 mensaje inspeccionable en `failed`; backend muerto con página abierta → watchdog reconecta y resincroniza.)*
 
 ### FASE 2 — Profundizar IA y dominio
 
@@ -320,7 +320,7 @@ Arrancar por **0.1 (versionar `src/`)** — cuello de botella estructural. Antes
 - [x] pgvector habilitado (0.3) — índice vectorial en 1.1
 - [x] Mercure publisher operativo (0.4)
 - [x] RabbitMQ durable + DLX + UI (0.5)
-- [ ] Workers escalables con reintentos/backoff e idempotencia (0.5, 1.8)
+- [x] Workers escalables con reintentos/backoff e idempotencia (0.5, 1.8)
 - [x] Scheduler (cron container) estable (0.6)
 - [ ] Healthchecks en TODOS los servicios (3.3)
 - [x] Tests unitarios base + CI verde (0.8) — ampliar cobertura en 3.4

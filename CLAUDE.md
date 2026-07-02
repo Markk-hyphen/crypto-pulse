@@ -45,9 +45,9 @@ El target de deploy de CMP es la **infra compartida** (`~/infra`: Postgres + Rab
 
 ## Estado del proyecto
 
-- **Hecho:** Fase 0 completa (0.1–0.8) + 1.1–1.7 (modelo de dominio + HNSW, ingesta RSS, poll programado, enriquecimiento IA, Mercure publish + null provider dev, API REST, dashboard en vivo `pulse.html`). Sync con main ejecutado 2026-07-02.
-- **Próximo paso:** 1.8 — Robustez del pipeline (reintentos/backoff, manejo de DLX, timeouts http-client, degradación del front). Cierra el GATE de Fase 1.
-- **Decisiones cerradas:** broker **RabbitMQ**, scheduler **contenedor cron (supercronic)**, LLM **Anthropic** (Haiku volumen / Sonnet agregados), vector **pgvector**, dominio **cripto** (RSS CoinDesk/Cointelegraph + CoinGecko; CryptoPanic en Fase 2).
+- **Hecho:** Fase 0 completa (0.1–0.8) + **Fase 1 completa (1.1–1.8, GATE cumplido)**: modelo de dominio + HNSW, ingesta RSS, poll programado, enriquecimiento IA, Mercure publish + null provider dev, API REST, dashboard en vivo `pulse.html`, robustez del pipeline (timeouts/retry http, DLX saneado + `app:failed:inspect`, sweep de recovery en cron, watchdog anti-zombie-SSE en el front). Sync con main ejecutado 2026-07-02.
+- **Próximo paso:** 2.1 — Múltiples fuentes vía `SourceAdapter` (CoinGecko; CryptoPanic queda para cuando haya key). Ojo: 2.2 (búsqueda semántica) sigue **bloqueada** por el estudio pgvector/HNSW de Marcos.
+- **Decisiones cerradas:** broker **RabbitMQ**, scheduler **contenedor cron (supercronic)**, LLM **Anthropic** (Haiku volumen / Sonnet agregados), vector **pgvector**, dominio **cripto** (RSS CoinDesk/Cointelegraph + CoinGecko; CryptoPanic en Fase 2). **Dead-letter (1.8):** el failure transport de Symfony es el ÚNICO camino a la cola `failed` — se quitó el `x-dead-letter-exchange` de `ingest`/`enrich` porque duplicaba cada reject de retry (3 copias-ruido por fallo); inspección con `app:failed:inspect`, reproceso con `messenger:failed:retry`; el porqué completo en `agent-commits.md` [PASO 1.8].
 - **Pendiente de estudio (NO avanzar sin Marcos):** pgvector / índice HNSW — bloqueante para Fase 2 (2.2 búsqueda semántica). La migración 1.1 crea un índice HNSW parcial, pero el diseño (parámetros `m`/`ef_construction`, operador de distancia, re-embedding) queda sin definir hasta que Marcos lo estudie.
 
 ## Deuda técnica conocida (revisión 2026-06-01, actualizada en el sync 2026-07-02)
@@ -55,9 +55,9 @@ El target de deploy de CMP es la **infra compartida** (`~/infra`: Postgres + Rab
 - ✅ **Mock de `EnrichmentProvider` en dev — RESUELTO en 1.5.** `NullEnrichmentProvider` + `services_dev.yaml` (renombrado de `services_development.yaml` en el sync: Symfony carga `services_{APP_ENV}.yaml` y APP_ENV ahora es `dev`).
 - ✅ **`MERCURE_URL` worker — RESUELTO en 1.5.** Cambiado a `http://backend/...` (nombre de servicio Docker).
 - 🟡 **El prompt caching de Anthropic es un no-op.** El system prompt (~250 tokens) está por debajo del mínimo cacheable de Haiku (2048 tokens) → `cache_control: ephemeral` se ignora; no hay ahorro. El header beta `prompt-caching-2024-07-31` ya es innecesario (GA). El ahorro real lo da la capa Symfony Cache por `contentHash`.
-- 🟢 **Dual-write DB↔broker → items huérfanos en `pending`.** Si el broker falla tras el `flush()` de ingesta, queda un `NewsItem(pending)` sin mensaje de enrich. Mitigado por `app:enrich:requeue-pending`. Para 1.8: correrlo periódico o documentarlo como recovery path.
+- ✅ **Dual-write DB↔broker → items huérfanos en `pending` — RESUELTO en 1.8.** `app:enrich:requeue-pending` corre cada 15 min en el crontab del scheduler, con `--min-age` (default 10 min) para no re-despachar items cuyo mensaje sigue legítimamente en cola.
+- ✅ **`RssAdapter` — RESUELTO en 1.8.** Header `User-Agent` agregado; feed no-RSS 2.0 (Atom, HTML) ahora **falla ruidoso** (RuntimeException → retry/DLX) en vez de vacío silencioso. Soporte Atom real no se agregó (ambas fuentes son RSS 2.0).
 - 🟢 **`contentHash` es un hash de la URL**, no del contenido. Dedup por URL es razonable; ediciones de título/cuerpo no re-ingestan.
-- 🟢 **`RssAdapter` asume RSS 2.0** (`channel->item`): feed Atom → vacío silencioso; sin header `User-Agent`. Para 1.8.
 - 🟢 **Gap de re-embedding:** items enriquecidos sin key de Voyage quedan con `embedding=null` permanente. La búsqueda semántica (2.2) los ignora. Necesitará comando de re-embed antes de Fase 2.
 - 🟢 **`worker` sin definición de producción** (deuda heredada de Oliva): existe solo en `docker-compose.override.yml` (dev). Antes del deploy real de CMP hay que agregar un `worker` prod (imagen `app-backend-prod:1.0`, comando `messenger:consume`, sin puertos). `scheduler` sí está cubierto en prod.
 

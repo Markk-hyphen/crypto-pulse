@@ -72,10 +72,21 @@ class EnrichItemHandler
         $this->em->flush();
 
         // Same shape as the REST API (GET /api/feed) — see NewsItemPayload.
-        $this->hub->publish(new Update(
-            'crypto/feed',
-            json_encode(NewsItemPayload::from($item, $enrichment)),
-        ));
+        // The enrichment is already flushed: a Mercure outage must not throw,
+        // or the message would retry/DLX for data that is safely persisted
+        // (the retry would no-op on the status guard and the event would be
+        // lost anyway). Clients recover missed events by resyncing over REST.
+        try {
+            $this->hub->publish(new Update(
+                'crypto/feed',
+                json_encode(NewsItemPayload::from($item, $enrichment)),
+            ));
+        } catch (\Throwable $e) {
+            $this->logger->error('EnrichItemHandler: Mercure publish failed (item persisted, event dropped)', [
+                'id'    => $item->getId(),
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         $this->logger->info('EnrichItemHandler: enriched', [
             'id'       => $item->getId(),

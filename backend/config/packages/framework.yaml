@@ -5,6 +5,18 @@ framework:
     # Note that the session will be started ONLY if you read or write from it.
     session: true
 
+    http_client:
+        default_options:
+            timeout: 10       # idle timeout (no bytes on the socket)
+            max_duration: 60  # hard cap per request — bounds LLM calls too
+            # Transparent retry at the HTTP layer (429/5xx/transport errors)
+            # before the failure ever reaches Messenger's retry_strategy. Cheap
+            # first line of defense against rate limits and flaky upstreams.
+            retry_failed:
+                max_retries: 2
+                delay: 1000
+                multiplier: 2
+
     #esi: true
     #fragments: true
 

@@ -45,6 +45,10 @@ services:
         arguments:
             $adapters: !tagged_iterator app.source_adapter
 
+    App\Command\FailedInspectCommand:
+        arguments:
+            $rabbitmqDsn: '%env(RABBITMQ_DSN)%'
+
     App\Provider\AnthropicEnrichmentProvider:
         arguments:
             $apiKey: '%env(ANTHROPIC_API_KEY)%'
