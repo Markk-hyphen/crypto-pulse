@@ -32,6 +32,53 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 
 ---
 
+## [PASO 2.4] feat: Market Now — resumen agregado periódico vía Sonnet, publicado en vivo
+**Hash:** `fa12cb5`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Provider/MarketNowProviderInterface.php` | nuevo | Contrato `summarize(items, snapshots): MarketNowResult` |
+| `backend/src/Provider/MarketNowResult.php` | nuevo | Value object (summary, model, totalTokens, costUsd) |
+| `backend/src/Provider/AnthropicMarketNowProvider.php` | nuevo | Llamada raw-HTTP a `claude-sonnet-5`, `max_tokens=700`, `thinking: {type: disabled}` explícito, prompt acotado (≤15 items, ≤240 chars c/u) |
+| `backend/src/Provider/NullMarketNowProvider.php` | nuevo | Mock dev — cero costo, cero llamada |
+| `backend/src/Entity/MarketNowSummary.php` | nuevo | Persistencia del resumen + `sourceHash` (clave de skip) |
+| `backend/src/Repository/MarketNowSummaryRepository.php` | nuevo | `findLatest()` + `deleteOlderThan()` (retención 7 días) |
+| `backend/migrations/Version20260702210000.php` | nuevo | `CREATE TABLE market_now_summary`. Se generó y descartó a mano un segundo diff espurio (retype `vector`/drop HNSW en `enrichment`) — mismo drift preexistente de 2.1, no relacionado |
+| `backend/src/Command/MarketNowCommand.php` | nuevo | `app:market:now`: arma contexto (K últimos `NewsItem` enriquecidos + snapshots por asset), calcula `sourceHash`, salta la llamada LLM si no cambió desde la corrida anterior, persiste, purga, publica a Mercure en `try/catch` |
+| `backend/src/Api/MarketNowPayload.php` | nuevo | Shape único para REST + Mercure (mismo patrón que `NewsItemPayload`) |
+| `backend/src/Controller/Api/MarketNowController.php` | nuevo | `GET /api/market-now` — última carga inicial para el front |
+| `backend/src/Repository/NewsItemRepository.php` | modificado | `findRecentEnrichedForSummary()` — fetch-join de `Enrichment`, mismo patrón que `findFeedPage` |
+| `backend/config/services.yaml` | modificado | Wiring de `AnthropicMarketNowProvider` + alias `MarketNowProviderInterface` |
+| `backend/config/services_dev.yaml` | modificado | Alias a `NullMarketNowProvider` en dev |
+| `backend/scheduler/crontab` | modificado | `*/10 * * * * bin/console app:market:now -v` — intervalo más largo que `app:market:poll` (2 min), porque cada corrida es una llamada LLM real |
+| `frontend/pulse.html` | modificado | Panel "Market Now" (reusa clases `.pulse-card`/`.pulse-summary` existentes, sin CSS nuevo) |
+| `frontend/src/pulse.js` | modificado | `loadMarketNow()` (REST inicial) + `connectMarketNow()` (segundo `EventSource`, topic `crypto/market-now`, backoff propio — sin el watchdog completo del feed principal, porque es un panel no crítico) |
+
+### Justificación
+
+**Por qué una sola llamada Sonnet por intervalo y no por-item:** el runbook original (`PLAN-MARKET-PULSE.md` §2.4) decía solo "resumen agregado (Sonnet) publicado en vivo" — sin fijar cuántas llamadas ni con qué contexto, la ambigüedad exacta que hace que un ejecutor se pase de presupuesto LLM. Se cerró antes de programar (sesión anterior, Opus): Market Now es un comando propio (`app:market:now`) en el cron, análogo a `app:market:poll`, que arma un contexto acotado (≤15 items enriquecidos + snapshots) y hace **una** llamada a Sonnet por corrida. Nunca pasa por `EnrichItemMessage`/cola — ese pipeline es Haiku por-item y ya está cerrado (2.1/1.4).
+
+**Por qué Sonnet y no Haiku acá:** Haiku (`claude-haiku-4-5`, ~$1/$5 por MTok) está reservado para clasificación de volumen por-item (ya en uso). Sonnet (`claude-sonnet-5`, ~$3/$15 por MTok) se usa **solo** en este único punto de síntesis/agregación — justificado porque es una tarea de escritura coherente sobre múltiples fuentes, no clasificación. El ID se verificó contra el catálogo vigente de modelos en vez de asumirlo de memoria.
+
+**`thinking: {type: disabled}` explícito, no omitido:** en Sonnet 5, omitir el parámetro `thinking` corre *adaptive* por default y gasta tokens de razonamiento — silencioso, no un error. Para un digest que se corre cada 10 min y debe ser barato, se deshabilita a propósito.
+
+**`sourceHash` para evitar llamadas redundantes:** un refresh del cron sin noticias ni precios nuevos no debe volver a facturar una llamada LLM. Se calcula un hash (ids de items + `asset:fetchedAt` de snapshots, ambos ordenados) y se compara contra el de la última fila persistida; si coincide, el comando corta antes de invocar al provider. Verificado en dev: la segunda corrida seguida imprime "No change since last summary — skipping the LLM call" y no toca el provider.
+
+**Topic Mercure separado (`crypto/market-now`), no reusar `crypto/feed`:** mezclar el shape de un resumen agregado con el de un `NewsItem` individual habría forzado un discriminador de tipo en el payload y complicado el front existente sin necesidad. Un topic propio + una segunda `EventSource` en `pulse.js` mantiene ambos flujos independientes; el front hoy solo soportaba un topic.
+
+**Sin watchdog completo en el segundo `EventSource`:** el watchdog anti-zombie de 1.8 (`pulse.js`) es necesario porque el feed de noticias es el producto central y una conexión zombie silenciosa ahí es grave. Market Now es un panel secundario de refresco lento (10 min); un backoff simple ante `onerror` es proporcional al riesgo — agregar el watchdog completo habría sido complejidad sin beneficio claro para esta superficie.
+
+**Retención de 7 días, no indefinida:** mismo criterio que `MarketSnapshot` (2.1) — es un digest de contexto, no un producto de serie histórica. Con una corrida cada 10 min el volumen es bajo, pero sin purga crecería sin límite igual.
+
+**Migración espuria descartada (mismo procedimiento que 2.1):** `doctrine:migrations:diff` post-aplicación volvió a proponer el retype de `embedding`/drop del índice HNSW en `enrichment` — es el drift preexistente y bloqueado (documentado en `CLAUDE.md`, no tocar hasta el estudio pgvector de Marcos). Se descartó esa migración generada y solo quedó aplicada la de `market_now_summary`.
+
+**Verificación (paso cumplido):** `doctrine:migrations:migrate` aplica limpio (solo `market_now_summary`); `app:market:now -v` con `NullMarketNowProvider` (dev) → summary persistido, costo $0; segunda corrida inmediata → skip confirmado por `sourceHash`; `GET /api/market-now` devuelve el payload esperado; `doctrine:schema:validate` sigue en rojo **únicamente** por el drift pgvector/HNSW ya conocido (confirmado generando y descartando el diff, no se sumó regresión nueva); `vendor/bin/phpunit` 12/12 verde; Vite recargó `pulse.js`/`pulse.html` sin errores (`page reload` limpio en logs).
+
+---
+
 ## Formato de entrada
 
 ```
