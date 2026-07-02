@@ -663,3 +663,36 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Conceptos que ejercita este paso** (para la doc integral futura): retry layering HTTP vs Messenger vs failure transport (`framework.yaml` / `messenger.yaml`); semántica AMQP de exchange direct + routing keys + bindings y mensajes unroutable (`messenger.yaml`, transport `failed`); basic.get/ack/nack y el flag redelivered (`FailedInspectCommand`); dual-write DB↔broker y sweeps de recovery (`EnrichRequeueCommand` + crontab); idempotencia y por qué el publish va fuera del camino de fallo (`EnrichItemHandler`); degradación del cliente SSE: zombie connections, watchdog, resync (`pulse.js`).
 
 **Verificación (gate del paso cumplido):** (1) worker muerto + poll → 2 mensajes esperan en `ingest`, ningún dato perdido; al reanudar drena el backlog. (2) Feed roto (adapter temporal a host inexistente) → 3 retries con backoff exponencial visible en logs (1s/2s/4s) → exactamente 1 mensaje en `failed`, inspeccionable y con error legible. (3) `app:failed:inspect` x2 → no consume. (4) Restart del backend con dashboard abierto → watchdog detecta el zombie, reconecta y resincroniza (Playwright). (5) PHPUnit 8/8, `lint:container` OK, build prod de Vite OK.
+
+## [PASO 2.1] feat: fuente de datos de mercado (CoinGecko) vía MarketSnapshot, fuera del pipeline de noticias
+**Hash:** `12bcf4f`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Entity/MarketSnapshot.php` | nuevo | Entidad propia (asset, priceUsd, marketCap, volume24h, changePct24h, fetchedAt); índice `(asset, fetched_at)` |
+| `backend/src/Repository/MarketSnapshotRepository.php` | nuevo | `findLatestPerAsset()` (contexto para impact score / asset afectado, 2.5) y `deleteOlderThan()` (retención) |
+| `backend/migrations/Version20260702202645.php` | nuevo | `CREATE TABLE market_snapshot` + índice. Generada con `doctrine:migrations:diff`; se descartó a mano un segundo diff que retipaba `embedding`/dropeaba el HNSW de `enrichment` — drift preexistente no relacionado, zona bloqueada hasta el estudio de pgvector de Marcos |
+| `backend/src/Provider/MarketDataProviderInterface.php` | nuevo | Contrato `fetch(): iterable` de datos de mercado, separado de `SourceAdapterInterface` (noticias) |
+| `backend/src/Provider/CoinGeckoProvider.php` | nuevo | Implementación vía `/simple/price` (sin key); retry con backoff exponencial (1s/2s/4s, 3 intentos) solo ante 429 |
+| `backend/src/Command/MarketPollCommand.php` | nuevo | `app:market:poll`: persiste un snapshot por asset y purga snapshots >24h en la misma corrida |
+| `backend/config/services.yaml` | modificado | Wiring de `CoinGeckoProvider` (mapa CoinGecko-id → ticker: bitcoin→BTC, ethereum→ETH) + alias de `MarketDataProviderInterface` |
+| `backend/scheduler/crontab` | modificado | `*/2 * * * * bin/console app:market:poll -v` |
+| `PLAN-MARKET-PULSE.md` | modificado | 2.1 expandido con la decisión de diseño (Objetivo/Acciones/Verificación, no solo una línea) antes de ejecutar |
+| `agent-commits.md` | modificado | Esta entrada |
+
+### Justificación
+
+**Por qué `MarketSnapshot` no es un `NewsItem` más ni pasa por `SourceAdapterInterface`:** el modelo de dominio de Fase 1 (`NewsItem`/`Enrichment`, `contentHash` único por URL, enriquecimiento LLM) fue diseñado 100% para artículos de noticias. CoinGecko devuelve datos de mercado (precio, market cap, volumen) sin título/cuerpo/URL de artículo — forzarlo dentro de `NewsItem` habría dejado campos inventados o vacíos, y peor: habría entrado al pipeline de enriquecimiento (`EnrichItemMessage` → Anthropic), gastando tokens en "resumir" un número. Se detectó esta ambigüedad revisando el runbook *antes* de ejecutar 2.1 (estaba escrito como una sola línea, sin el detalle de Fase 0/1) y se cerró con una entidad, un contrato (`MarketDataProviderInterface`) y un comando propios, sin tocar el pipeline de noticias/IA.
+
+**Sin dedup por contenido, con retención por tiempo:** a diferencia de `NewsItem` (dedup por `contentHash` de la URL — el mismo artículo no cambia), un snapshot de precio es legítimamente distinto cada vez que se pollea, así que no hay una clave natural de dedup. La alternativa era no purgar nunca (tabla crece sin límite) o una unique constraint artificial por asset+ventana truncada (complejidad innecesaria para lo que el dominio necesita: contexto reciente, no serie histórica). Se optó por retención simple: el propio `app:market:poll` borra snapshots >24h en cada corrida (`MarketSnapshotRepository::deleteOlderThan`).
+
+**Poll cada 2 min, sin pasar por RabbitMQ:** el precio cambia rápido y el pipeline de mensajería (`ingest`/`enrich`) existe para desacoplar fetch→persist de un enriquecimiento LLM costoso — acá no hay LLM de por medio, así que el comando persiste directo en la misma ejecución que dispara el cron, sin encolar. Mantiene la superficie simple y evita colas nuevas sin necesidad real.
+
+**Retry solo ante 429:** `CoinGeckoProvider` reintenta con backoff exponencial únicamente si la API responde rate-limit (verificado: la doc pública de CoinGecko marca ~10-30 req/min sin key); cualquier otro 4xx (shape de URL, ids inválidos) fallaría igual en el reintento, así que se relanza directo — mismo criterio de "no reintentar lo que no es transitorio" que ya usa el pipeline de noticias.
+
+**Se descartó a mano un diff no relacionado:** `doctrine:migrations:diff` arrastró un cambio en la columna `embedding` de `enrichment` (retipado `vector`→`vector(1024)`) y un `DROP INDEX hnsw_enrichment_embedding` — ruido de cómo Doctrine introspecciona el tipo `vector` de pgvector, preexistente a este paso. Tocar eso sin que Marcos haya cerrado el diseño de HNSW (bloqueado explícitamente en `CLAUDE.md`) habría sido tomar una decisión de arquitectura no pedida; se eliminó esa migración generada y solo se aplicó la de `market_snapshot`.
+
+**Verificación (paso cumplido):** `doctrine:migrations:migrate` aplica limpio; `app:market:poll -v` corrido contra la API real de CoinGecko dos veces seguidas → 2 snapshots por corrida (BTC/ETH con precio, market cap, volumen y %cambio reales), 4 filas acumuladas sin dedup, 0 purgadas (todavía dentro de las 24h); `scheduler` reiniciado y crontab confirmado con la nueva línea corriendo cada 2 min; `vendor/bin/phpunit` 8/8 verde (nada de Fase 1 se rompió).
