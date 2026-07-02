@@ -592,7 +592,7 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Hallazgo (no bug):** 53 items con `status=enriched` sin fila `Enrichment` en la DB de dev — todos del 2026-06-01 05:53–06:05, test-runs del paso 1.4 previos al persist. El innerJoin del feed los excluye solo. Es ruido de dev; si molesta, un `UPDATE`/purga manual alcanza.
 
 ## [PASO 1.7] feat: dashboard en vivo (pulse.html)
-**Hash:** `pendiente`
+**Hash:** `9ecf0643bfbfbf9a191c59831806f707f0c128d3`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-07-02
 
