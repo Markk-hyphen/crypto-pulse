@@ -30,6 +30,17 @@ class MarketNowCommand extends Command
     // rationale as MarketSnapshotRepository's retention purge.
     private const RETENTION_HOURS = 24 * 7;
 
+    // Skip tolerance for the source hash. Snapshots are folded in by *bucketed
+    // price* only — never fetchedAt (it changes every poll and would defeat the
+    // skip outright) and not 24h-change (it drifts on its own bucket boundaries
+    // and, being derived from price anyway, just reintroduces the flicker it is
+    // meant to avoid; it still reaches the LLM via buildUserContent). A ~3%
+    // relative price step skips ~83% of sub-0.5% drift while refreshing on
+    // ~2-3% moves — the right threshold for a market digest (sub-1% is noise).
+    // Tighter (~1%) is too flickery to skip anything; wider (~5%) misses real
+    // 2% moves. One-line knob.
+    private const PRICE_BUCKET_RATIO = 1.03;
+
     public function __construct(
         private readonly NewsItemRepository $newsItemRepo,
         private readonly MarketSnapshotRepository $snapshotRepo,
@@ -110,6 +121,12 @@ class MarketNowCommand extends Command
     }
 
     /**
+     * Fingerprint of the window this summary would be built from — lets the
+     * command skip the Sonnet call when nothing materially changed since the
+     * last run. Snapshots are folded in by bucketed *value* (see the bucket
+     * constants), never by fetchedAt, so a quiet window hashes the same across
+     * runs while a real price move or fresh news changes it.
+     *
      * @param list<\App\Entity\NewsItem> $items
      * @param array<string, \App\Entity\MarketSnapshot> $snapshots
      */
@@ -120,7 +137,15 @@ class MarketNowCommand extends Command
 
         $snapshotParts = [];
         foreach ($snapshots as $asset => $snapshot) {
-            $snapshotParts[] = $asset . ':' . $snapshot->getFetchedAt()->format(\DateTimeInterface::ATOM);
+            $price = (float) $snapshot->getPriceUsd();
+            // Relative ~3% buckets: prices within the step share an integer, so
+            // ordinary drift hashes the same. Guard the log domain against a
+            // non-positive price.
+            $priceBucket = $price > 0.0
+                ? (int) round(log($price) / log(self::PRICE_BUCKET_RATIO))
+                : 0;
+
+            $snapshotParts[] = $asset . ':' . $priceBucket;
         }
         sort($snapshotParts);
 

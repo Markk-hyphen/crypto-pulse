@@ -5,6 +5,32 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 
 ---
 
+## [2.4 · post-auditoría] fix: skip real de Market Now — precio bucketeado, no `fetchedAt`
+**Hash:** `<pendiente>`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-03
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Command/MarketNowCommand.php` | modificado | `computeSourceHash` mezcla ahora **precio bucketeado** (paso relativo ~3%, const `PRICE_BUCKET_RATIO`) en vez de `fetchedAt`; `changePct24h` **sacado del hash** |
+| `docs/estudio-y-auditoria-1.5-2.6.md` | nuevo | Guía de estudio + auditoría de hitos 1.5–2.6: recorrido con los 5 puntos por hito, weak-point review de 2.4/2.5/2.6, caso de estudio del skip (4 patrones), auditoría §3.7/§7/§12 y "Qué sigue sin cerrarse" |
+| `agent-commits.md` | modificado | Esta entrada |
+
+### Justificación
+
+**Origen:** auditoría con Opus de los hitos 1.5–2.6 (weak-point review de los últimos tres). El hallazgo #1 tocaba el control de costo de §3.7: el skip por `sourceHash` de Market Now estaba **muerto en producción**.
+
+**El bug.** `computeSourceHash` incluía el `fetchedAt` de cada snapshot. `app:market:poll` (cron cada 2') escribe una fila nueva por asset con `fetchedAt = now()` — monótono, cambia siempre. Como `app:market:now` corre cada 10', el último `fetchedAt` **siempre** difería del de la corrida anterior → el hash siempre cambiaba → la rama de skip nunca disparaba → Sonnet se llamaba cada 10' haya o no novedades. La verificación original no lo agarró porque corría el comando dos veces seguidas *sin poll en el medio* (timing que no es el de producción).
+
+**El fix y sus dos trampas descubiertas al verificar.** (1) Se hashea el **precio** en vez del `fetchedAt`, bucketeado a ~3% relativo (log base 1.03) para que la deriva normal caiga en el mismo bucket. El ~1% inicial era demasiado fino: medido, un drift de 0.5% volteaba el bucket el 50% de las veces (*boundary flicker*). El ~3% se eligió con una tabla de probabilidad de flip: saltea ~83% del drift <0.5% y refresca ante movimientos de ~2-3% (sub-1% es ruido). (2) El primer intento incluía también `changePct24h`; al verificar, flickeaba por su cuenta (deriva sobre sus propios bordes) y es redundante con el precio → reintroducía el problema. Se lo sacó del hash (sigue yendo al prompt del LLM vía `buildUserContent`).
+
+**Verificación (end-to-end, stack de dev):** `php -l` ok; PHPUnit 17/17 verde (sin regresión); secuencia real `market:now` → `market:poll` (precio ~igual) → `market:now` → la 3ª corrida imprime "No change since last summary — skipping the LLM call" y no crea fila nueva (antes del fix creaba una). Guard de `price=0` (dominio de `log`) probado sin crash.
+
+**Alternativas descartadas** (elegida A por Marcos entre tres): B — skip solo por item-ids (un movimiento de precio sin noticias no refrescaría el panel, subvende el componente de precios); C — que `market:poll` haga upsert solo si el precio cambió (más invasivo, toca 2.1 + impact score + retención).
+
+---
+
 ## [PASO 2.6] feat: filtros del dashboard (clase, sentiment, fuente, impacto, ticker)
 **Hash:** `e097b35`
 **Rama:** `release/plan-market-pulse`
