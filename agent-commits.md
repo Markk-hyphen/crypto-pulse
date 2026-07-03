@@ -32,6 +32,44 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 
 ---
 
+## [PASO 2.5] feat: impact score — heurística + salience, sin llamada LLM extra
+**Hash:** `bd0de0c`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Entity/Enrichment.php` | modificado | Columna `impactScore` (float, `options: ['default' => 0]` para que el mapping ORM coincida con el `DEFAULT` de la migración y no genere drift falso) |
+| `backend/migrations/Version20260702215156.php` | nuevo | `ALTER TABLE enrichment ADD impact_score ... DEFAULT '0'` (backfill de filas preexistentes). Se generó y descartó a mano, dos veces, el diff espurio de `vector`/HNSW — mismo drift preexistente de 2.1/2.4 |
+| `backend/src/Provider/AnthropicEnrichmentProvider.php` | modificado | Nueva key `"salience"` (0-1) en el `SYSTEM_PROMPT` de Haiku — **mismo prompt, mismo call**, no un segundo round-trip; parseo con default seguro a `0.0` si falta/inválido |
+| `backend/src/Provider/EnrichmentResult.php` | modificado | Campo `salience: float` |
+| `backend/src/Provider/NullEnrichmentProvider.php` | modificado | `salience: 0.0` en el mock dev |
+| `backend/src/Service/ImpactScorer.php` | nuevo | `score(EnrichmentResult): float` — 60% salience (LLM) + 40% heurística determinística (sentiment no-neutral, `assetClass` de alto impacto, cantidad de tickers, volatilidad 24h vía `MarketSnapshotRepository::findLatestPerAsset()`), clamp 0-1 |
+| `backend/src/MessageHandler/EnrichItemHandler.php` | modificado | Inyecta `ImpactScorer`, llama `->score($result)` antes del `persist()`/`flush()` del `Enrichment` |
+| `backend/src/Api/NewsItemPayload.php` | modificado | Expone `impactScore` en el shape REST+Mercure (filtro/orden por impacto queda para 2.6, explícitamente fuera de este paso) |
+| `backend/tests/Unit/Api/NewsItemPayloadTest.php` | modificado | Cubre `impactScore` en ambos shapes (con y sin enrichment) y en el lock de keys |
+| `backend/tests/Unit/Service/ImpactScorerTest.php` | nuevo | 5 tests: caso alto impacto (regulación + ticker volátil), caso rutinario bajo, caso sin snapshot/tickers (score definido, no null/crash), clamp 0-1, orden relativo sensato entre escenarios |
+| `agent-commits.md` | modificado | Esta entrada |
+
+### Justificación
+
+**Por qué la señal de impacto viaja en el JSON de Haiku que ya existe, no en un segundo call:** el runbook (`PLAN-MARKET-PULSE.md` §2.5, redactado en la sesión anterior) cerró esto explícitamente para no repetir el error que 2.1/2.4 evitaron a propósito: gastar una llamada LLM extra por una señal que se puede pedir gratis dentro de un call que ya se está pagando. `AnthropicEnrichmentProvider` ya arma un JSON con `summary`/`sentiment`/`asset_class`/etc. por cada `NewsItem`; agregar `"salience"` a ese mismo JSON no suma tokens de output significativos (un número más) y no suma ninguna request nueva.
+
+**Por qué el score final combina salience + heurística y no usa solo uno de los dos:** salience puro depende 100% del juicio del modelo sobre un artículo aislado, sin contexto de mercado en vivo — no sabe si BTC se movió 12% hoy. La heurística pura ignora la lectura cualitativa del contenido (una noticia de regulación redactada de forma neutra puede ser igual de relevante que una alarmista). Combinar ambos con 60/40 (salience pesa más por ser la lectura de contenido, la heurística corrige con datos objetivos de mercado) da un ranking que ninguna de las dos señales sola daría. La fórmula y los pesos quedan documentados acá y en el código (no son un detalle escondido).
+
+**Por qué el default de heurística es 0.0 y no 0.5 cuando falta una señal:** un salience ausente o inválido (respuesta LLM mal formada) se mapea a 0.0, no al punto medio — una señal ausente no debe empujar el score hacia "impacto medio" por default, porque eso sesgaría el ranking hacia arriba en el peor caso (el LLM falla → el item parece más relevante de lo que realmente se sabe). Mismo criterio que ya usa el código para `sentiment` (default `'neutral'` explícito, no adivinado).
+
+**El drift de `impact_score DROP DEFAULT` no es el drift de pgvector — se corrigió, no se descartó:** al escribir la migración con `DEFAULT '0'` (necesario para el backfill de filas preexistentes en dev), Doctrine generaba un segundo diff que quería *dropear* ese default porque el mapping ORM no lo declaraba. A diferencia del drift de `vector`/HNSW (bloqueado, documentado, no tocar), este era un drift nuevo y evitable: se declaró `options: ['default' => 0]` en la columna de la entidad para que el mapping coincida con lo que la migración deja en la base. Verificado: tras el fix, `doctrine:migrations:diff` vuelve a generar **únicamente** el diff de `vector`/HNSW ya conocido.
+
+**Tests con `createStub`, no `createMock`, sobre `MarketSnapshotRepository`:** PHPUnit 12 marca con notice cualquier `createMock()` sin `->expects()` configurado (no se verifican invocaciones, solo se necesita un valor de retorno) — el fix es usar `createStub()`, que es lo que semánticamente se estaba haciendo. Ajustado en los 5 tests nuevos; suite quedó sin notices.
+
+**No se tocó `findFeedPage` ni se agregó un query param de orden/filtro:** el runbook es explícito en que el campo tiene que viajar en el payload ya, pero el filtro de UI/API es 2.6. Agregar sort-by-impact ahora habría sido adelantar scope de un paso que Marcos todavía no pidió ejecutar.
+
+**Verificación (paso cumplido):** `vendor/bin/phpunit` 17/17 verde (12 previos + 5 nuevos de `ImpactScorer`); pipeline real ejercido de punta a punta — item existente reseteado a `pending`, reencolado con `app:enrich:requeue-pending --min-age=0`, procesado por el worker (tras limpiar la cache de contenedor, que no se recarga sola en un proceso long-running), `impact_score` persistido y correcto (0 para el caso sin señal, sin crash); `doctrine:migrations:status` limpio (5/5 aplicadas); `doctrine:migrations:diff` post-fix solo regenera el drift `vector`/HNSW ya conocido, ninguno nuevo.
+
+---
+
 ## [PASO 2.4] feat: Market Now — resumen agregado periódico vía Sonnet, publicado en vivo
 **Hash:** `fa12cb5`
 **Rama:** `release/plan-market-pulse`
