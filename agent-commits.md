@@ -5,6 +5,34 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 
 ---
 
+## [PASO 2.6] feat: filtros del dashboard (clase, sentiment, fuente, impacto, ticker)
+**Hash:** `e097b35`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-07-02
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/src/Repository/NewsItemRepository.php` | modificado | `findFeedPage` suma `minImpact` (`e.impactScore >= :minImpact`) y `ticker`. El filtro de ticker resuelve los `news_item_id` con una query SQL nativa (`tickers::text LIKE`) antes de aplicar el `IN` en el DQL — ver justificación |
+| `backend/src/Controller/Api/FeedController.php` | modificado | Parsea `ticker` y `minImpact` de la query string; valida `minImpact` en `[0,1]` (400 si no) |
+| `frontend/pulse.html` | modificado | Barra de filtros (`#pulse-filters`): selects de fuente/clase/sentiment/impacto + input de ticker + botón Clear, arriba de `#pulse-feed` |
+| `frontend/src/pulse.js` | modificado | `feedUrl()` arma la query string del feed con los filtros activos (carga inicial y resync); `matchesFilters()` aplica el mismo criterio a los eventos de Mercure en vivo (llegan sin filtrar desde el backend); `ensureOption()` puebla los selects de fuente/clase con los valores que el feed ya mostró (sin endpoint nuevo de valores distintos); clic en un tag de ticker de una card filtra por ese ticker |
+| `frontend/src/style.css` | modificado | Estilos `.pulse-filters`/`.pulse-filter-select`/`.pulse-filter-input`/`.pulse-filter-clear`; tags de ticker con `cursor: pointer` + hover (el tag de `assetClass` no es clickeable, se excluye) |
+
+### Justificación
+
+**Por qué el filtro de ticker no se resolvió en una sola query DQL:** `tickers` es una columna `json` plana (no `jsonb`) — se verificó a mano contra la base (`psql`) que Postgres tira `operator does not exist: json ~~ unknown` al hacer `LIKE` directo sobre ella, y que un `::text` explícito sí funciona. Doctrine DQL no tiene una función `CAST` nativa para forzar ese cast desde el QueryBuilder, y registrar una función DQL custom solo para este filtro era más superficie de la que el paso necesita. Se optó por resolver los ids que matchean con una query nativa acotada (`SELECT news_item_id FROM enrichment WHERE tickers::text LIKE :ticker`) y filtrar el DQL principal por `n.id IN (:ids)` — con corte temprano (`total=0`) si no hay matches, para no mandar un `IN ()` vacío. Verificado en vivo: se insertó un valor de prueba (`["BTC","ETH"]`) en una fila de `enrichment`, `?ticker=btc` la devolvió y `?ticker=doge` no, y se revirtió el valor de prueba.
+
+**Por qué los filtros también se aplican a los eventos de Mercure en vivo, no solo a la carga REST:** el backend filtra `/api/feed`, pero el publish de Mercure (`EnrichItemHandler`) no sabe qué filtro tiene seleccionado cada cliente conectado — manda todo. Sin `matchesFilters()` en `upsert()`, un usuario con un filtro activo vería aparecer ítems que no matchean apenas se enriquece una noticia nueva, mientras la carga inicial sí los respeta — inconsistencia visible en la demo. La función también cubre el caso inverso: un ítem que ya estaba en pantalla y deja de matchear (raro, pero posible si se re-enriquece) se saca del DOM en vez de quedar stale.
+
+**Por qué los selects de fuente/clase se pueblan desde los datos ya cargados y no desde un endpoint nuevo:** `source` y `assetClass` son valores abiertos (no un enum fijo — el prompt de Haiku admite categorías como "BTC", "DeFi", "Regulation", "Altcoin", etc., ver `AnthropicEnrichmentProvider`), así que hardcodear opciones en el HTML se habría desincronizado apenas apareciera una categoría nueva. Agregar un endpoint de "valores distintos" es una superficie de más para un filtro de UI — `ensureOption()` los va agregando a medida que el feed los muestra, con el costo aceptado de que un valor que *nunca* apareció en el feed cargado no aparece como opción (no es un problema real: si nunca apareció, filtrar por él no tendría nada que mostrar de todos modos).
+
+**Búsqueda (2.2) fuera de scope de este paso:** el runbook dice "filtros aplican sobre feed y búsqueda", pero la búsqueda semántica no existe todavía — sigue bloqueada por el estudio pgvector/HNSW de Marcos (ver `CLAUDE.md`). No hay nada sobre lo que aplicar un filtro de búsqueda; cuando 2.2 se desbloquee, `matchesFilters`/`feedUrl` son reutilizables tal cual sobre el nuevo endpoint.
+
+**Verificación (paso cumplido):** `php -l` limpio en ambos archivos backend; probado en vivo contra el stack de dev (`docker compose up`) — `source`, `sentiment`, `assetClass` y `minImpact` filtran correctamente sobre datos reales del feed (ej. `sentiment=positive` → `total:0` porque el `NullEnrichmentProvider` de dev solo genera `neutral`, comportamiento esperado); build de producción de Vite sin errores; navegación real con Playwright headless contra `pulse.html` servido por el dev server: seleccionar fuente/sentiment filtra la lista a un solo valor, `ticker=BTC` da 0 resultados (dataset de dev sin tickers, esperado), Clear restaura el feed completo, cero errores de consola.
+
+---
+
 ## [PASO 2.1 · post-review] refactor: quitar retry redundante de CoinGecko + test + anotar deuda schema:validate
 **Hash:** `6250672`
 **Rama:** `release/plan-market-pulse`
