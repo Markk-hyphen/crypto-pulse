@@ -3,7 +3,7 @@ import './style.css'
 
 const HUB       = '/.well-known/mercure';
 const TOPIC     = 'crypto/feed';
-const FEED_URL  = '/api/feed?limit=30';
+const FEED_BASE = '/api/feed?limit=30';
 const MAX_CARDS = 60;
 
 const MARKET_NOW_TOPIC = 'crypto/market-now';
@@ -28,8 +28,15 @@ let marketNowSource;
 let marketNowEl;
 let marketNowEsAttempts = 0; // failed EventSource connections in a row
 
+// Client-side filter state (2.6). Applied to both the initial/resync REST
+// load (via query params — the backend does the actual filtering) and to
+// live Mercure events (matchesFilters below), which arrive unfiltered.
+const filters = { source: '', assetClass: '', sentiment: '', minImpact: '', ticker: '' };
+let filterEls;
+
 document.addEventListener('DOMContentLoaded', () => {
     feedEl = document.getElementById('pulse-feed');
+    initFilters();
     loadInitial();
     connect();
 
@@ -51,11 +58,82 @@ document.addEventListener('DOMContentLoaded', () => {
 // backend from being hammered while still recovering fast from blips.
 const backoff = (base, attempts) => Math.min(base * 2 ** attempts, 30000);
 
+// ─── Filters (2.6) ───────────────────────────────────────────────────────────
+
+function initFilters() {
+    filterEls = {
+        source:      document.getElementById('filter-source'),
+        assetClass:  document.getElementById('filter-assetClass'),
+        sentiment:   document.getElementById('filter-sentiment'),
+        minImpact:   document.getElementById('filter-impact'),
+        ticker:      document.getElementById('filter-ticker'),
+    };
+
+    filterEls.source.addEventListener('change', () => setFilter('source', filterEls.source.value));
+    filterEls.assetClass.addEventListener('change', () => setFilter('assetClass', filterEls.assetClass.value));
+    filterEls.sentiment.addEventListener('change', () => setFilter('sentiment', filterEls.sentiment.value));
+    filterEls.minImpact.addEventListener('change', () => setFilter('minImpact', filterEls.minImpact.value));
+    filterEls.ticker.addEventListener('change', () => setFilter('ticker', filterEls.ticker.value.trim().toUpperCase()));
+
+    document.getElementById('filter-clear').addEventListener('click', () => {
+        filters.source = filters.assetClass = filters.sentiment = filters.minImpact = filters.ticker = '';
+        filterEls.source.value = filterEls.assetClass.value = filterEls.sentiment.value = filterEls.minImpact.value = '';
+        filterEls.ticker.value = '';
+        loadInitial();
+    });
+
+    // Clicking a ticker tag on a card filters the feed to that ticker.
+    feedEl.addEventListener('click', (e) => {
+        const tag = e.target.closest('.pulse-tag:not(.pulse-tag--class)');
+        if (!tag) return;
+        filterEls.ticker.value = tag.textContent;
+        setFilter('ticker', tag.textContent);
+    });
+}
+
+function setFilter(key, value) {
+    filters[key] = value;
+    loadInitial();
+}
+
+// Adds an <option> for a value not already present — keeps source/assetClass
+// dropdowns populated from whatever the feed has actually seen so far,
+// without a separate "distinct values" endpoint.
+function ensureOption(selectEl, value) {
+    if (!value || selectEl.querySelector(`option[value="${CSS.escape(value)}"]`)) return;
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    selectEl.appendChild(opt);
+}
+
+function feedUrl() {
+    const url = new URL(FEED_BASE, window.location.origin);
+    if (filters.source)     url.searchParams.set('source', filters.source);
+    if (filters.assetClass) url.searchParams.set('assetClass', filters.assetClass);
+    if (filters.sentiment)  url.searchParams.set('sentiment', filters.sentiment);
+    if (filters.minImpact)  url.searchParams.set('minImpact', filters.minImpact);
+    if (filters.ticker)     url.searchParams.set('ticker', filters.ticker);
+    return url.pathname + url.search;
+}
+
+// Applied to items arriving live via Mercure, which bypass the backend's
+// query-param filtering — keeps the live stream consistent with whatever
+// filter is currently selected.
+function matchesFilters(item) {
+    if (filters.source && item.source !== filters.source) return false;
+    if (filters.assetClass && item.assetClass !== filters.assetClass) return false;
+    if (filters.sentiment && item.sentiment !== filters.sentiment) return false;
+    if (filters.minImpact && (item.impactScore ?? 0) < Number(filters.minImpact)) return false;
+    if (filters.ticker && !(item.tickers ?? []).includes(filters.ticker)) return false;
+    return true;
+}
+
 // ─── Initial load (REST) ─────────────────────────────────────────────────────
 
 async function loadInitial() {
     try {
-        const res = await fetch(FEED_URL);
+        const res = await fetch(feedUrl());
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const { data } = await res.json();
         loadAttempts = 0;
@@ -64,7 +142,11 @@ async function loadInitial() {
         if (data.length === 0) {
             feedEl.innerHTML = '<p class="pulse-empty">No news yet — the pipeline is warming up.</p>';
         } else {
-            data.forEach(item => feedEl.appendChild(card(item)));
+            data.forEach(item => {
+                ensureOption(filterEls.source, item.source);
+                ensureOption(filterEls.assetClass, item.assetClass);
+                feedEl.appendChild(card(item));
+            });
         }
         updateCount();
     } catch (err) {
@@ -151,7 +233,7 @@ function renderMarketNow(data) {
 // prepends land in order) instead of wiping the list like loadInitial does.
 async function resync() {
     try {
-        const res = await fetch(FEED_URL);
+        const res = await fetch(feedUrl());
         if (!res.ok) return; // live again anyway; next disconnect retries
         const { data } = await res.json();
         [...data].reverse().forEach(item => upsert(item, { flash: false }));
@@ -159,15 +241,27 @@ async function resync() {
 }
 
 // New item → prepend; known item (was pending, now enriched) → replace in place.
+// Live Mercure events aren't pre-filtered by the backend, so a non-matching
+// item is dropped here — but if it was already on screen (edited out of the
+// current filter by re-enrichment) it must still be removed, not left stale.
 function upsert(item, { flash = true } = {}) {
     if (!item || typeof item.id !== 'number') return;
+
+    const existingBeforeFilter = feedEl.querySelector(`[data-id="${item.id}"]`);
+    if (!matchesFilters(item)) {
+        existingBeforeFilter?.remove();
+        updateCount();
+        return;
+    }
+
+    ensureOption(filterEls.source, item.source);
+    ensureOption(filterEls.assetClass, item.assetClass);
 
     const fresh = card(item);
     if (flash) fresh.classList.add('pulse-card--new');
 
-    const existing = feedEl.querySelector(`[data-id="${item.id}"]`);
-    if (existing) {
-        existing.replaceWith(fresh);
+    if (existingBeforeFilter) {
+        existingBeforeFilter.replaceWith(fresh);
     } else {
         feedEl.querySelector('.pulse-empty')?.remove();
         feedEl.prepend(fresh);

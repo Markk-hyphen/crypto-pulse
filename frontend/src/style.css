@@ -663,10 +663,55 @@ a { text-decoration: none; }
   border: 1px solid var(--leaf-border);
   border-radius: 4px;
   padding: .15rem .45rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
 }
-.pulse-tag--class { color: var(--gold); border-color: rgba(196,154,56,.35); }
+.pulse-tag:hover { color: var(--leaf); border-color: var(--leaf); }
+.pulse-tag--class { color: var(--gold); border-color: rgba(196,154,56,.35); cursor: default; }
+.pulse-tag--class:hover { color: var(--gold); border-color: rgba(196,154,56,.35); }
 
 .pulse-count { font-size: .78rem; color: var(--text-muted); }
+
+.pulse-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  max-width: 780px;
+  margin-bottom: 1.25rem;
+}
+.pulse-filter-select,
+.pulse-filter-input {
+  font-family: inherit;
+  font-size: .78rem;
+  color: var(--cream);
+  background: rgba(28,52,16,.3);
+  border: 1px solid var(--leaf-border);
+  border-radius: 8px;
+  padding: .4rem .6rem;
+}
+.pulse-filter-select:focus,
+.pulse-filter-input:focus {
+  outline: none;
+  border-color: var(--leaf);
+}
+.pulse-filter-input { width: 9rem; }
+.pulse-filter-input::placeholder { color: var(--text-muted); }
+.pulse-filter-clear {
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--leaf-border);
+  border-radius: 8px;
+  padding: .4rem .7rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.pulse-filter-clear:hover { color: var(--leaf); border-color: var(--leaf); }
 
 /* ─────────────────────────────────────────
    Responsive

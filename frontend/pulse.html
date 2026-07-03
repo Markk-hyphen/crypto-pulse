@@ -49,6 +49,27 @@
   <!-- FEED -->
   <main class="pulse-main">
     <div class="container">
+      <div id="pulse-filters" class="pulse-filters">
+        <select id="filter-source" class="pulse-filter-select" aria-label="Filter by source">
+          <option value="">All sources</option>
+        </select>
+        <select id="filter-assetClass" class="pulse-filter-select" aria-label="Filter by asset class">
+          <option value="">All classes</option>
+        </select>
+        <select id="filter-sentiment" class="pulse-filter-select" aria-label="Filter by sentiment">
+          <option value="">All sentiment</option>
+          <option value="positive">Positive</option>
+          <option value="neutral">Neutral</option>
+          <option value="negative">Negative</option>
+        </select>
+        <select id="filter-impact" class="pulse-filter-select" aria-label="Filter by impact">
+          <option value="">All impact</option>
+          <option value="0.7">High impact (≥0.7)</option>
+          <option value="0.4">Medium+ impact (≥0.4)</option>
+        </select>
+        <input id="filter-ticker" class="pulse-filter-input" type="text" placeholder="Ticker (e.g. BTC)" aria-label="Filter by ticker" />
+        <button id="filter-clear" class="pulse-filter-clear" type="button">Clear</button>
+      </div>
       <div id="pulse-feed" class="pulse-feed">
         <p class="pulse-empty">Loading feed…</p>
       </div>

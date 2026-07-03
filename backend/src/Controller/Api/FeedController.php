@@ -33,9 +33,16 @@ class FeedController
         $source = $request->query->get('source') ?: null;
         $sentiment = $request->query->get('sentiment') ?: null;
         $assetClass = $request->query->get('assetClass') ?: null;
+        $ticker = $request->query->get('ticker') ?: null;
+
+        $minImpactRaw = $request->query->get('minImpact') ?: null;
+        $minImpact = null !== $minImpactRaw ? (float) $minImpactRaw : null;
+        if (null !== $minImpact && ($minImpact < 0.0 || $minImpact > 1.0)) {
+            return new JsonResponse(['error' => 'minImpact must be between 0 and 1'], 400);
+        }
 
         ['items' => $items, 'total' => $total] = $this->newsItemRepo->findFeedPage(
-            $page, $limit, $source, $sentiment, $assetClass,
+            $page, $limit, $source, $sentiment, $assetClass, $minImpact, $ticker,
         );
 
         return new JsonResponse([

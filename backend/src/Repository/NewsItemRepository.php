@@ -33,6 +33,8 @@ class NewsItemRepository extends ServiceEntityRepository
         ?string $source = null,
         ?string $sentiment = null,
         ?string $assetClass = null,
+        ?float $minImpact = null,
+        ?string $ticker = null,
     ): array {
         $qb = $this->createQueryBuilder('n')
             ->innerJoin('n.enrichment', 'e')
@@ -47,6 +49,25 @@ class NewsItemRepository extends ServiceEntityRepository
         }
         if (null !== $assetClass) {
             $qb->andWhere('e.assetClass = :assetClass')->setParameter('assetClass', $assetClass);
+        }
+        if (null !== $minImpact) {
+            $qb->andWhere('e.impactScore >= :minImpact')->setParameter('minImpact', $minImpact);
+        }
+        if (null !== $ticker) {
+            // tickers is a plain JSON column (not jsonb): Postgres has no `@>`
+            // containment operator for it, and DQL has no CAST to route around
+            // "operator does not exist: json ~~ unknown". Resolve the matching
+            // ids with one native-SQL LIKE against the text cast, then filter
+            // the DQL query by id — tickers are stored upper-case (see
+            // AnthropicEnrichmentProvider).
+            $matchingIds = $this->getEntityManager()->getConnection()->fetchFirstColumn(
+                'SELECT news_item_id FROM enrichment WHERE tickers::text LIKE :ticker',
+                ['ticker' => '%"'.strtoupper($ticker).'"%'],
+            );
+            if ([] === $matchingIds) {
+                return ['items' => [], 'total' => 0];
+            }
+            $qb->andWhere('n.id IN (:ids)')->setParameter('ids', $matchingIds);
         }
 
         $total = (int) (clone $qb)->select('COUNT(n.id)')->getQuery()->getSingleScalarResult();
