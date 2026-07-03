@@ -6,7 +6,7 @@ Cada entrada detalla qué cambió, por qué, y qué decisión de arquitectura re
 ---
 
 ## [2.4 · post-auditoría] fix: skip real de Market Now — precio bucketeado, no `fetchedAt`
-**Hash:** `<pendiente>`
+**Hash:** `cc75b24`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-07-03
 
