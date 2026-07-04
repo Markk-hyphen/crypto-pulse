@@ -70,6 +70,14 @@ Escenarios concretos de rotura, encontrados analizando el caso de levantar varia
 
 **Fix sugerido (no implementado):** antes de `down`/`up` en los 4 scripts, correr algo como `docker compose ls --format json` (o `docker ps --filter label=com.docker.compose.project=$APP_NAME`) y abortar con error claro si el project ya existe pero corresponde a un working dir distinto del actual (comparar por label `com.docker.compose.project.working_dir` que compose ya setea solo). Alcanza con un chequeo simple al principio de cada script — no hace falta un registro central.
 
+### Deuda conocida: environments de Bruno commiteados se ensucian solos al testear
+
+La convención de API testing con Bruno (ver `README.md` de la collection `api/` de cada fork, heredada de este patrón) commitea `environments/{staging,prod}.bru` con valores de ejemplo (`project_id`, `member_id`, `batch_id`, montos de los requests). Bruno **escribe de vuelta al archivo en disco** cada vez que el usuario edita una variable desde la UI (el ícono del ojo) o cuando un script `post-response` hace `bru.setVar(...)`. Como esos `.bru` están trackeados en git, **cada sesión de testeo real dirty-ea archivos commiteados** con valores efímeros de esa sesión (ids de fixtures, montos de prueba) — encontrado al testear finanzas-ong (Marcos: `project_id: 1→29`, `member_id: 1→76`, montos `150.00→15000.00`).
+
+Hoy la única mitigación es manual: `git checkout -- api/` después de cada sesión, antes de commitear cualquier otra cosa — funciona pero depende de acordarse.
+
+**Fix sugerido (no implementado), evaluado con Marcos en finanzas-ong:** clonar los environments a una copia personal gitignoreada (`environments/staging.local.bru`, `environments/prod.local.bru`) y trabajar siempre sobre esa en Bruno — los archivos commiteados quedan de plantilla limpia para siempre, nunca los toca la UI. Mismo patrón que `.env.example` → `.env` (gitignoreado) ya usado para los secrets de prod en esta misma collection. Implementar en Oliva (`api/README.md` + `.gitignore` + generar los `.local.bru` iniciales a partir de los committeados) para que baje ya resuelto a cada fork, en vez de backportearlo desde un fork puntual.
+
 ## Infra compartida (opcional): `docker-compose.shared-infra.yml`
 
 Overlay genérico, **opt-in**, para cuando varias apps Oliva comparten un mismo
