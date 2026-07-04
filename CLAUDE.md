@@ -57,6 +57,19 @@ La base de datos usa la imagen `pgvector/pgvector:pg${POSTGRES_VERSION}` — es 
 
 Mercure (`/.well-known/mercure`) está siempre activo vía el hub de Caddy (`backend/frankenphp/Caddyfile`); la demo de canvas en vivo (`backend/public/live.php` + `frontend/src/js/live.js`) muestra que funciona out of the box.
 
+### Deuda conocida: `scripts/deploy.sh`/`deploy-staging.sh`/`down*.sh` no tienen guard de colisión de nombre
+
+Los 4 scripts (`scripts/deploy.sh`, `scripts/deploy-staging.sh`, `scripts/down.sh`, `scripts/down-staging.sh`) derivan el project name (`-p`) de `APP_NAME="${1:-$(basename "$PWD")}"` — o sea, del nombre del directorio en el VPS donde se clonó la app (o de un argumento explícito). Todo lo que cuelga de ahí (red `${COMPOSE_PROJECT_NAME}_app_network`, alias `${COMPOSE_PROJECT_NAME}-frontend` en `proxy_net`, sufijo `-staging`) se deriva de forma determinística por interpolación — eso funciona bien. El problema es que **`APP_NAME` mismo no está atado a nada canónico** (ni al remote de git, ni a un registro central) y **ningún script valida que ese nombre no esté ya en uso por otro stack**.
+
+Escenarios concretos de rotura, encontrados analizando el caso de levantar varias apps en el mismo VPS (una de ellas con staging):
+
+1. **Colisión silenciosa y destructiva.** Si dos apps distintas terminan con el mismo basename de directorio (o alguien re-clona la misma app en un path nuevo con otro nombre), `down --remove-orphans` de una tira abajo los containers de la otra sin error ni warning — `docker compose -p <nombre>` no sabe que `<nombre>` "pertenece" a un repo/checkout distinto.
+2. **Ya pasó en la práctica**: `finanzas-ong` es el nombre del repo, pero en el VPS vive clonado como `~/ong` (ver notas operativas del fork). Nada ata ese nombre al repo — es una decisión manual tomada una vez al clonar. Si alguien reclona sin saberlo con otro nombre de directorio, aparece un segundo stack duplicado en paralelo, sin aviso.
+3. **`-staging` es convención, no namespace reservado.** Una app real que se llamara literalmente `algo-staging` colisionaría con el staging automático de la app `algo`.
+4. **`infra/scripts/provision-postgres.sh <db_name> <db_user>`** se tipea a mano y no se deriva de `APP_NAME` en ningún script — puede driftear del project name de compose sin que nada lo note.
+
+**Fix sugerido (no implementado):** antes de `down`/`up` en los 4 scripts, correr algo como `docker compose ls --format json` (o `docker ps --filter label=com.docker.compose.project=$APP_NAME`) y abortar con error claro si el project ya existe pero corresponde a un working dir distinto del actual (comparar por label `com.docker.compose.project.working_dir` que compose ya setea solo). Alcanza con un chequeo simple al principio de cada script — no hace falta un registro central.
+
 ## Infra compartida (opcional): `docker-compose.shared-infra.yml`
 
 Overlay genérico, **opt-in**, para cuando varias apps Oliva comparten un mismo
