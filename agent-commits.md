@@ -212,7 +212,7 @@ Detectado durante una verificación del stack de producción de `main` (framewor
 
 ## [PASO 1.1] feat: modelo de dominio — entidades NewsItem y Enrichment
 
-**Hash:** `<pendiente>`
+**Hash:** `ac688ba`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-06-01
 
@@ -866,7 +866,7 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 ---
 
 ## [AUDITORÍA DE REANUDACIÓN] Diagnóstico tras ~3 meses de pausa + correcciones al doc de estudio
-**Hash:** `<pendiente>`
+**Hash:** `ac688ba`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-10-07
 
