@@ -154,7 +154,7 @@ docker compose exec backend bin/console app:failed:inspect   # no consume; corre
 ```bash
 docker compose exec backend bin/console app:market:poll -v
 docker compose exec database psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -c "SELECT asset, price_usd, change_pct_24h, fetched_at FROM market_snapshot ORDER BY fetched_at DESC LIMIT 4;"
+  -c "SELECT asset, price_usd, change_pct24h, fetched_at FROM market_snapshot ORDER BY fetched_at DESC LIMIT 4;"
 ```
 
 ---
@@ -379,7 +379,7 @@ curl -s 'http://localhost/api/feed?minImpact=2'         | jq .              # 40
 
 **Deudas/hallazgos abiertos del recorrido 1.5–2.6 (no bloquean, pero conviene registrarlos):**
 
-3. **[2.4] El skip por `sourceHash` de Market Now está muerto en producción. ✅ RESUELTO (working tree, sin commitear).** Era: `market:poll` (cada 2') escribe snapshots con `fetchedAt` nuevo, `computeSourceHash` lo incluía ⇒ Sonnet cada 10' sí o sí. Fix aplicado: hash sobre precio bucketeado (~3% relativo), `changePct24h` fuera del hash (flickea solo), verificado end-to-end. Falta: commitear (con su entrada en `agent-commits.md`). (Detalle en el hito 2.4.)
+3. **[2.4] El skip por `sourceHash` de Market Now está muerto en producción. ✅ RESUELTO Y COMMITEADO (`cc75b24`, registrado en `agent-commits.md` por `a4d7fef`).** Era: `market:poll` (cada 2') escribe snapshots con `fetchedAt` nuevo, `computeSourceHash` lo incluía ⇒ Sonnet cada 10' sí o sí. Fix aplicado: hash sobre precio bucketeado (~3% relativo), `changePct24h` fuera del hash (flickea solo), verificado end-to-end. (Detalle en el hito 2.4.)
 4. **[2.5] El bump de asset class es un match exacto contra texto libre del LLM.** `['Regulation','Exchange']` con `in_array(...,true)` falla en silencio si Haiku devuelve otra variante de casing/etiqueta. Fix: normalizar o validar `asset_class` como enum. (Detalle en 2.5.)
 5. **[2.5] `findLatestPerAsset` se recarga entera por cada item enriquecido** (ineficiencia O(snapshots)×items, hoy inocua). Fix: query acotada por tickers o memoización.
 6. **[§3.7d] No existe límite de gasto/rate configurable.** El runbook lo marca obligatorio; quedó diferido sin anotar. Definir dónde vive (config + kill-switch, o tope por ventana) antes de un deploy con `ANTHROPIC_API_KEY` real y volumen.
@@ -388,3 +388,37 @@ curl -s 'http://localhost/api/feed?minImpact=2'         | jq .              # 40
 9. **[c] Prompt caching de Anthropic es no-op** (system prompt < 2048 tok) y el header beta ya es GA. Deuda cosmética; el ahorro real lo da la Symfony Cache.
 
 **Nada de lo anterior es un crash en el happy path.** Los tres hitos nuevos (2.4/2.5/2.6) funcionan y están testeados; los weak points son de robustez, calibración y —en el caso del skip de 2.4— de un control de costo que existe pero no se activa. El sistema está sano para seguir; estos son los bordes a mirar antes de v3 y antes de encender la key real en el VPS.
+
+---
+
+# Anexo — Auditoría de reanudación (2026-10-07, tras ~3 meses de pausa)
+
+Sesión de diagnóstico sin construir nada. Se levantó el stack de dev tal cual quedó y se corrieron los checkpoints de este documento contra el sistema vivo.
+
+## El sistema sobrevivió intacto
+
+6/6 containers healthy **sin rebuild** (imágenes de julio arrancaron tal cual), migraciones 5/5 al día (0 nuevas), y el pipeline completo fluyó end-to-end: `app:sources:poll` → cola → worker → `EnrichItemHandler: enriched` → `POST /.well-known/mercure` `200` → `/api/feed`. Entraron **54 noticias reales nuevas** de CoinDesk/Cointelegraph en la corrida. CoinGecko respondió con precios reales. Las purgas por retención funcionaron solas (snapshots >24h; `market_now_summary` pasó de 8 filas de julio a 1 nueva). Gasto de tokens: **cero** — `services_dev.yaml` tiene aliasados `NullEnrichmentProvider` y `NullMarketNowProvider`.
+
+También se verificó en vivo la validación de 2.6 (`minImpact=2` → `400`) y las 13 keys de `NewsItemPayload`.
+
+## Hallazgos nuevos (no estaban en el recorrido original)
+
+**A. 53 `news_item` huérfanos con `status='enriched'` y sin fila en `enrichment`.** Todos del **2026-06-01** (día uno del proyecto). El feed no los expone porque `findFeedPage` usa `innerJoin` (por eso `/api/feed` reporta `total=223` sobre 276 items). No rompe nada hoy, pero es un `status` que miente sobre el estado real, y esos items serían invisibles para la búsqueda semántica de 2.2. Casi con certeza un artefacto de los primeros pasos, anterior al pipeline completo. **Decisión pendiente:** backfillearlos (re-encolar enrichment) o corregirles el `status`.
+
+**B. El gap de embeddings es TOTAL, no parcial.** `VOYAGE_API_KEY` está **vacía** (longitud 0) y **169 de 169** enrichments tienen `embedding = NULL`; los 54 nuevos también. El texto de arriba decía "los items sin key quedan con embedding null"; la medición dice que es el **100% del corpus**. Para 2.2 no existe ni un solo vector. El comando de re-embed no es un paso previo menor: es **prerrequisito duro**, y antes hay que decidir si se paga Voyage o se cambia de proveedor de embeddings.
+
+**C. El índice HNSW ya existe y es PARCIAL.** En el schema vivo:
+```
+"hnsw_enrichment_embedding" hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL
+```
+El estudio de pgvector **no arranca de cero**: ya hay dos decisiones de diseño tomadas (distancia coseno + índice parcial sobre los no-nulos) que conviene entender y validar antes de re-decidir. Es además el objeto exacto que mantiene `doctrine:schema:validate` en rojo (ítem 7 de arriba).
+
+**D. Cuello de botella confirmado: el estudio pgvector/HNSW bloquea más de lo documentado.** No solo 2.2 y 2.3. El hito **3.4** del runbook pide "habilitar **todos** los pasos del `ci.yml`" y **3.5** monta el CI/CD encima; con `schema:validate` en rojo, 3.4 no se puede cerrar con honestidad. O sea que el estudio es el chokepoint de 2.2 + 2.3 + 3.4 + 3.5 + la deuda del diff espurio recurrente.
+
+**E. Erratas de checkpoints.** El checkpoint de 2.1 decía `change_pct_24h`; la columna real es `change_pct24h`. Corregido en este commit. Al correr checkpoints, verificar nombres contra `\d <tabla>` antes de asumir.
+
+## Conteo real de hitos
+
+Fase 0: 8/8 ✅ · Fase 1: 8/8 ✅ · Fase 2: 4/7 (2.1 parcial —CryptoPanic en espera indefinida—, 2.4, 2.5, 2.6 ✅; 2.2/2.3 ⛔ bloqueados; 2.7 opcional sin construir) · Fase 3: 0/8. **Total completado: 20 de 31 hitos.**
+
+Nota de tracking: §4 del runbook sigue sin checkboxes para Fase 2 — el estado real vive en `CLAUDE.md` y `agent-commits.md`. Conviene marcar 2.1/2.4/2.5/2.6 como ✅ y 2.2/2.3 como ⛔ para que el runbook se baste solo.

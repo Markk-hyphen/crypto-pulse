@@ -862,3 +862,31 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Se descartó a mano un diff no relacionado:** `doctrine:migrations:diff` arrastró un cambio en la columna `embedding` de `enrichment` (retipado `vector`→`vector(1024)`) y un `DROP INDEX hnsw_enrichment_embedding` — ruido de cómo Doctrine introspecciona el tipo `vector` de pgvector, preexistente a este paso. Tocar eso sin que Marcos haya cerrado el diseño de HNSW (bloqueado explícitamente en `CLAUDE.md`) habría sido tomar una decisión de arquitectura no pedida; se eliminó esa migración generada y solo se aplicó la de `market_snapshot`.
 
 **Verificación (paso cumplido):** `doctrine:migrations:migrate` aplica limpio; `app:market:poll -v` corrido contra la API real de CoinGecko dos veces seguidas → 2 snapshots por corrida (BTC/ETH con precio, market cap, volumen y %cambio reales), 4 filas acumuladas sin dedup, 0 purgadas (todavía dentro de las 24h); `scheduler` reiniciado y crontab confirmado con la nueva línea corriendo cada 2 min; `vendor/bin/phpunit` 8/8 verde (nada de Fase 1 se rompió).
+
+---
+
+## [AUDITORÍA DE REANUDACIÓN] Diagnóstico tras ~3 meses de pausa + correcciones al doc de estudio
+**Hash:** `<pendiente>`
+**Rama:** `release/plan-market-pulse`
+**Fecha:** 2026-10-07
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docs/estudio-y-auditoria-1.5-2.6.md` | modificado | Corrige el checkpoint de 2.1 (`change_pct_24h` → `change_pct24h`, la columna real); actualiza el ítem 3 de "Qué sigue sin cerrarse" (el fix del skip de 2.4 ya está commiteado en `cc75b24`, el doc seguía diciendo "working tree, sin commitear"); agrega el anexo "Auditoría de reanudación" con los hallazgos de esta sesión. |
+| `CLAUDE.md` | modificado | "Próximo paso" pasa a describir la sesión de estudio acordada (plan A→C, método y punto de arranque) en vez del estado de Fase 2, que se mueve a su propia línea. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+
+**Por qué una auditoría antes de retomar.** Marcos volvía tras ~3 meses sin tocar el proyecto y no confiaba en su recuerdo de dónde había quedado (creía "ítem 20 de 25"). Se verificó contra el código en vez de contra la memoria: el conteo real es **20 hitos completados de 31** (Fase 0: 8/8, Fase 1: 8/8, Fase 2: 4/7, Fase 3: 0/8) — su recuerdo era exacto. Se levantó el stack de dev y se corrieron los checkpoints del documento de estudio contra el sistema vivo: 6/6 containers healthy sin rebuild, migraciones al día, pipeline RSS→cola→worker→Mercure→API fluyendo (54 noticias nuevas reales ingestadas en la corrida), CoinGecko respondiendo, purgas por retención funcionando, cero gasto de tokens (providers Null aliasados en dev).
+
+**Por qué se corrigió el checkpoint de 2.1.** No corría como estaba escrito: usaba `change_pct_24h` y la columna real es `change_pct24h`. Se descubrió al ejecutarlo. Un checkpoint roto en un documento pensado para que Marcos lo corra solo es fricción pura — se arregla donde está, no se anota como deuda.
+
+**Por qué el anexo y no reescribir el cuerpo del documento.** El documento original es el registro de un recorrido fechado (2026-07-02/03) y tiene valor como tal. Los hallazgos nuevos son de otra fecha y de otra naturaleza (estado de reanudación, no auditoría de hitos), así que van en un anexo fechado. Lo único que se editó en el cuerpo fue el checkpoint roto y un estado que había quedado factualmente desactualizado.
+
+**Hallazgos que cambian la planificación** (detalle en el anexo): (a) el gap de embeddings es **total**, no parcial — `VOYAGE_API_KEY` vacía y 169/169 enrichments con `embedding=NULL`, o sea cero vectores para 2.2; (b) el índice HNSW **ya existe y es parcial** (`vector_cosine_ops WHERE embedding IS NOT NULL`), así que el estudio de pgvector no arranca de cero sino validando decisiones ya tomadas; (c) el estudio de pgvector es un cuello de botella **más ancho de lo documentado**: bloquea 2.2 y 2.3, pero también 3.4 y 3.5, porque el hito 3.4 pide habilitar todos los pasos del CI y `schema:validate` está en rojo justo por ese índice; (d) **53 `news_item` huérfanos** con `status='enriched'` y sin fila en `enrichment`, todos del 2026-06-01 — invisibles en el feed por el `innerJoin`, pero es un status que miente y serían invisibles también para 2.2.
+
+**Qué se descartó.** Se evaluó incluir en esta sesión el batch de fixes menores pendientes (asset-class con match estricto, `findLatestPerAsset` ineficiente, href sin validar esquema, metachars de `LIKE`, prompt-caching no-op) — la decisión que había quedado abierta en una `AskUserQuestion` de julio. Marcos la cerró: esos fixes no le dicen nada al volver y no aportan al estudio, así que salen del camino crítico y se harán cuando se toque el archivo correspondiente. También se descartó el enfoque de "releer el documento" como forma de refrescar: es reconocimiento pasivo y Marcos nunca escribió el código de 1.6+ (es observador desde ahí), así que se acordó el método de correr el checkpoint primero y leer el código después.
+
+**No se tocó código de la app.** Sesión de diagnóstico y documentación únicamente.
