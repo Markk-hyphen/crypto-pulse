@@ -212,7 +212,7 @@ Detectado durante una verificación del stack de producción de `main` (framewor
 
 ## [PASO 1.1] feat: modelo de dominio — entidades NewsItem y Enrichment
 
-**Hash:** `ac688ba`
+**Hash:** `5b5fd15`
 **Rama:** `release/plan-market-pulse`
 **Fecha:** 2026-06-01
 
