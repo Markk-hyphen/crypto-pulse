@@ -890,3 +890,58 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 **Qué se descartó.** Se evaluó incluir en esta sesión el batch de fixes menores pendientes (asset-class con match estricto, `findLatestPerAsset` ineficiente, href sin validar esquema, metachars de `LIKE`, prompt-caching no-op) — la decisión que había quedado abierta en una `AskUserQuestion` de julio. Marcos la cerró: esos fixes no le dicen nada al volver y no aportan al estudio, así que salen del camino crítico y se harán cuando se toque el archivo correspondiente. También se descartó el enfoque de "releer el documento" como forma de refrescar: es reconocimiento pasivo y Marcos nunca escribió el código de 1.6+ (es observador desde ahí), así que se acordó el método de correr el checkpoint primero y leer el código después.
 
 **No se tocó código de la app.** Sesión de diagnóstico y documentación únicamente.
+
+---
+
+## `<pendiente>` — docs: guía de lectura del hito 1.5 + fix de su checkpoint + `-f` en claude-commands
+
+**Rama:** `release/plan-market-pulse` · **Fecha:** 2026-10-17
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docs/estudio-1.5-guia-de-lectura.md` | nuevo | Mapa de lectura del hito 1.5 en 8 estaciones, en el orden del flujo de datos (`IngestSourceHandler:58` → `messenger.yaml` → `EnrichItemHandler` → `NewsItemPayload` → Null provider → `mercure.yaml`/`Caddyfile` → `pulse.js:160-215`), con archivo:línea, preguntas para contestar leyendo y 3 preguntas de cierre. |
+| `docs/estudio-y-auditoria-1.5-2.6.md` | modificado | Corrige el checkpoint de 1.5: no corre como estaba escrito. |
+| `claude-commands.md` | modificado | Documenta el flag `-f` de `claude reiniciar`, que se venía usando sin estar escrito. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+
+**Por qué un documento aparte y no ampliar el doc de estudio.** Marcos pidió estudiar 1.5
+leyendo el código él mismo en el IDE, de inicio a fin. Eso necesita un artefacto distinto
+del que ya existe: `estudio-y-auditoria-1.5-2.6.md` **explica** los hitos (es el recorrido
+fechado de julio, con valor como registro), y acá hacía falta lo contrario — un mapa que
+**no explique** y mande a leer en un orden útil, con preguntas cuya respuesta está en el
+archivo de cada estación. Mezclar ambos registros en un archivo arruinaría los dos: el
+recorrido fechado dejaría de ser un registro y la guía dejaría de ser accionable. Formato
+nuevo, reutilizable para los hitos siguientes si funciona.
+
+**Por qué se corrigió el checkpoint de 1.5.** No corría: proponía
+`app:enrich:requeue-pending --min-age=0` para forzar un enrich, pero ese comando solo
+reencola items en `status=pending` y al retomar el pipeline está al día → `Requeued 0`,
+cero publicaciones a Mercure, checkpoint sin señal. Lo que genera items de verdad es
+`app:sources:poll`. Se dejó `requeue-pending` documentado por lo que realmente es
+(recovery de dual-write, no disparador). Mismo criterio que el fix del checkpoint de 2.1
+en `ac688ba`: un checkpoint roto en un doc que Marcos corre solo es fricción pura, se
+arregla donde está.
+
+**Dos trampas del perímetro de 1.5 que quedaron marcadas en la guía** (descubiertas al
+armarla, costarían tiempo de lectura): (a) `frontend/src/js/live.js` **no es de CMP** — es
+la demo de Oliva (topic `oliva.dev/live`); confunde porque también habla Mercure, el
+consumidor real es `pulse.js`; (b) el `MERCURE_URL` efectivo del worker **no** es el de
+`backend/.env:34` (`localhost`, donde no hay hub porque el worker corre sin Caddy) sino el
+de `.env.backend:39` (`http://backend/...`): el worker carga `env_file: [.env, .env.backend]`
+y el último gana. Verificado contra el contenedor vivo con `printenv`.
+
+**Por qué se documentó `-f`.** La preferencia existía y se venía usando, pero el flag no
+estaba en `claude-commands.md` de esta rama **ni en `main`** — solo en la memoria del
+agente, que es local y no la comparten los forks. Una preferencia operativa durable que
+vive únicamente en memoria se pierde en el próximo fork. Pendiente de paridad:
+portarlo al `claude-commands.md` de `main` y de finanzas-ong.
+
+**Checkpoint de 1.5 corrido contra el stack vivo** (ancla previa a la lectura): 54 eventos
+por SSE en `crypto/feed`, items nuevos reales (ids 284+, noticias del 16-17/10),
+`model: null-provider` y `costUsd: 0` → cero gasto de tokens confirmado. El handler loguea
+`embedding: null` en cada item: no es bug de 1.5, es el gap de la etapa C.
+
+**No se tocó código de la app.** Sesión de estudio y documentación únicamente.

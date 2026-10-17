@@ -76,6 +76,11 @@ La regla que atraviesa casi todo lo nuevo es la misma que ya conocés de la capa
 curl -N -H 'Accept: text/event-stream' \
   'http://localhost/.well-known/mercure?topic=crypto/feed'
 # En otra terminal, forzar un enrich (dev, sin costo):
+# OJO: requeue-pending solo reencola items en status=pending. Si el pipeline
+# quedo al dia (lo normal al retomar), devuelve "Requeued 0" y no publica nada.
+# Para generar items nuevos de verdad, pollear las fuentes:
+docker compose exec backend bin/console app:sources:poll
+# (requeue-pending sirve para el caso dual-write: item pending cuyo mensaje se perdio)
 docker compose exec backend bin/console app:enrich:requeue-pending --min-age=0
 ```
 

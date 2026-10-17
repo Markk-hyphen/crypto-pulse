@@ -4,7 +4,7 @@ Comandos que el usuario puede escribir en el chat para activar protocolos espec�
 
 ---
 
-## `claude reiniciar [x=60]`
+## `claude reiniciar [x=60] [-f]`
 
 **Qué hace:** Si el contexto de la conversación está por encima de `x`% de su límite, guarda todo lo necesario para un reinicio exitoso y avisa que se puede abrir una nueva sesión.
 
@@ -23,3 +23,8 @@ Comandos que el usuario puede escribir en el chat para activar protocolos espec�
    d. Informar al usuario: "Contexto al X%. Estado guardado — podés abrir una sesión nueva."
 
 **Umbral por defecto:** 60%.
+
+**Flag `-f` (force):** salta el paso 1 (la estimación de contexto) y va directo a guardar
+— ejecuta 3a, 3b, 3c y 3d sin evaluar el umbral. Estimar el % es impreciso e innecesario
+cuando la intención de guardar ya es explícita (ej. el usuario corta la sesión por otra
+razón: se tiene que poner a trabajar, cambia de prioridad, etc.).
