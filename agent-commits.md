@@ -893,7 +893,7 @@ Decisiones aplicadas: **D1** — CMP expresa su "todo siempre on" con `COMPOSE_P
 
 ---
 
-## `<pendiente>` — docs: guía de lectura del hito 1.5 + fix de su checkpoint + `-f` en claude-commands
+## `8a0fcb3` — docs: guía de lectura del hito 1.5 + fix de su checkpoint + `-f` en claude-commands
 
 **Rama:** `release/plan-market-pulse` · **Fecha:** 2026-10-17
 
