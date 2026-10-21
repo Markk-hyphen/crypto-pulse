@@ -29,3 +29,4 @@ docker-compose.shared-infra.yml
 # .env.backend, .gitignore, CLAUDE.md, README.md, claude-commands.md.
 # Los locks (composer.lock, yarn.lock, symfony.lock) se regeneran con `sync.sh locks`.
 # Extension points del fork (nunca los cambia Oliva): backend/php-extensions.txt.
+# Logs de commits (agent-commits.md / commits.md): cada repo tiene el suyo; en un sync gana el del fork.
