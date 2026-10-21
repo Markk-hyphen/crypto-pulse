@@ -22,7 +22,7 @@
 
 ## Estado de partida (verificado al escribir esto)
 
-- `~/app` en rama `release/plan-market-pulse`, HEAD `c076e57` (merge del sync con Oliva 1.1.0). Untracked: `PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md` (de Marcos, va a crypto-pulse).
+- `~/app` en rama `release/plan-market-pulse`; su historia incluye `c076e57` (merge del sync con Oliva 1.1.0) y este runbook (`150e23b`). Untracked: `PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md` (de Marcos, va a crypto-pulse).
 - `main` local = Oliva 1.1.0 (`d6b95b4`, tag `v1.1.0`), **sin pushear** (origin/main está en `372515c`).
 - Puede existir un worktree de `main` en `/tmp/claude-1000/...scratchpad/oliva` (la sesión Opus lo usó): se limpia en la fase 7.
 - Stack dev de finanzas-ong **corriendo** (ocupa `:80`). Containers `app-*` de CMP **parados**.
@@ -36,7 +36,7 @@
 ```bash
 git -C /home/marcos/app branch --show-current        # release/plan-market-pulse
 git -C /home/marcos/app status -s                    # solo: ?? PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md
-git -C /home/marcos/app log --oneline -1             # c076e57 merge: sync Oliva 1.1.0 into crypto-pulse
+git -C /home/marcos/app merge-base --is-ancestor 150e23b HEAD && echo OK   # OK (incluye el runbook)
 git -C /home/marcos/app rev-parse --short main v1.1.0^{}   # d6b95b4 d6b95b4
 git -C /home/marcos/finanzas-ong status -s           # vacío
 gh auth status                                       # logueado como Markk-hyphen, scope repo

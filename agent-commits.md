@@ -948,7 +948,7 @@ por SSE en `crypto/feed`, items nuevos reales (ids 284+, noticias del 16-17/10),
 
 ---
 
-## `PENDIENTE` — docs: runbook de separación de crypto-pulse respecto de Oliva
+## `150e23b` — docs: runbook de separación de crypto-pulse respecto de Oliva
 
 **Rama:** `release/plan-market-pulse` · **Fecha:** 2026-10-21
 
