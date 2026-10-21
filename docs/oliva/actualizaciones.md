@@ -59,6 +59,9 @@ commit `chore(deps)`. Cuando toca:
 `/health`, **Mercure de punta a punta** (publish con JWT, el suscriptor con token recibe el
 privado y el anónimo no), migraciones al día, `schema:validate`, PHPUnit y build de las
 imágenes de prod. Cada paso se saltea con `OLIVA_VERIFY_SKIP="paso otro"`.
+En CI (GitHub Actions) el equivalente es la **variable de repo** `OLIVA_CI_SKIP` (`schema`,
+`phpunit`): un fork que tiene un paso en rojo conocido lo apaga sin editar `ci.yml`, que es de
+Oliva — `gh variable set OLIVA_CI_SKIP --body schema -R <owner>/<repo>`.
 
 ## Lado fork: traer Oliva
 

@@ -98,11 +98,16 @@ jobs:
         run: docker compose exec -T backend bin/console doctrine:migrations:migrate --no-interaction
 
       -
+        # Opt-out por fork sin editar este archivo (es de Oliva): variable de repo
+        # en GitHub, ej. `gh variable set OLIVA_CI_SKIP --body schema`. Mismos
+        # nombres de paso que OLIVA_VERIFY_SKIP de scripts/oliva/verify.sh.
         name: Doctrine Schema Validator
+        if: ${{ !contains(vars.OLIVA_CI_SKIP, 'schema') }}
         run: docker compose exec -T backend bin/console doctrine:schema:validate
 
       -
         name: Run PHPUnit
+        if: ${{ !contains(vars.OLIVA_CI_SKIP, 'phpunit') }}
         run: docker compose exec -T backend php vendor/bin/phpunit
 
   prod-config:
