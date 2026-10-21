@@ -1,9 +1,12 @@
 FROM node:20-slim AS base
 WORKDIR /usr/src/app
 RUN command -v yarn || npm install --global yarn
-COPY package.json yarn.lock* ./
+# yarn.lock versionado + --frozen-lockfile: el build instala EXACTAMENTE lo
+# lockeado y falla si package.json cambió sin regenerar el lock. Sin lock cada
+# build resolvía versiones nuevas en silencio (mismo bug que un tag flotante).
+COPY package.json yarn.lock ./
 ARG NODE_ENV
-RUN yarn install --production=false
+RUN yarn install --frozen-lockfile --production=false
 
 # Development Stage
 FROM base AS development
