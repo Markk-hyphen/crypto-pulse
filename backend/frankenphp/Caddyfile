@@ -34,6 +34,12 @@ http://:80 {
 		mercure {
 			anonymous
 			publisher_jwt {$MERCURE_PUBLISHER_JWT_KEY:!ChangeThisSecret!} HS256
+			# Without it no subscriber can be authorized for private updates.
+			# Same key on purpose: MercureBundle signs both token kinds with MERCURE_JWT_SECRET.
+			subscriber_jwt {$MERCURE_PUBLISHER_JWT_KEY:!ChangeThisSecret!} HS256
+			# Mercure in FrankenPHP >= 1.13 rejects publisher_jwt/subscriber_jwt outside
+			# compatibility mode. Modern mode needs issuer blocks + an "iss" claim in every token.
+			protocol_version_compatibility 8
 		}
 	}
 
