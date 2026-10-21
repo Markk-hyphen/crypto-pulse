@@ -167,3 +167,24 @@ confirme que el layout es invariante.
 **Sistema de actualización.** Se descartó Dependabot/Renovate con PRs (el flujo es solo-dev sin PRs; un bot abriendo PRs que nadie mergea es ruido) y un cron que syncee solo (un merge puede tocar código del fork; alguien tiene que verlo). Lo elegido: recordatorios baratos en el chequeo de inicio de sesión (`deps.sh due`, `sync.sh check`), un ciclo semiautomático que solo sube versiones dentro de los rangos y la red de seguridad `verify.sh`. Los saltos de major e imagen base quedan manuales, uno por commit. La pieza clave es la propiedad de archivos (`owned-paths.txt`) con extension points: el ensayo del sync de finanzas mostró que quedarse con la versión de Oliva del Dockerfile **borraba `bcmath`** y rompía el cálculo de dinero. De ahí `backend/php-extensions.txt` y que `sync.sh` muestre lo que cambió el fork antes de sugerir nada.
 
 **Problema encontrado durante la ejecución:** el `agent-commits.md` de Oliva viaja con cada merge y chocaría con el log propio de cada fork. `sync.sh` ahora lo clasifica `[FORK]` (gana el del fork).
+
+---
+
+## [1.1.1] chore(scripts): limpiar restos de build al deployar y al actualizar dependencias
+**Hash:** ver `git log --grep "prune build leftovers"` (se registra en el mismo commit)
+**Rama:** `main`
+**Fecha:** 2026-10-21
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/lib/docker-prune.sh` | nuevo | `prune_build_leftovers`: `docker image prune -f` (solo sin tag) + `docker builder prune --filter until=168h`. Saltea con `OLIVA_NO_PRUNE=1`. |
+| `scripts/deploy.sh`, `scripts/deploy-staging.sh` | modificado | Lo llaman al final, después del `ps`. |
+| `scripts/oliva/deps.sh` | modificado | `update` lo llama tras el commit del ciclo. |
+| `docs/oliva/actualizaciones.md`, `docs/oliva/UPGRADING.md` | modificado | Sección "Espacio en disco" y notas de 1.1.1. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+Marcos preguntó si las actualizaciones periódicas engordan los proyectos. Medido el 2026-10-21 en su máquina: git no (un ciclo son decenas de KB de lockfile), Docker sí, y por cualquier rebuild, no solo por las actualizaciones. Había 4,1 GB de caché de build sin usar, 2,3 GB de imágenes recuperables y 1 GB de volúmenes anónimos huérfanos. En el VPS (droplet chico) cada `deploy.sh --build` deja ~750 MB de imagen de backend sin tag, así que el disco se llena solo con el tiempo.
+
+Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B para cuando pecl está caído van taggeadas a propósito, y el prune nunca toca volúmenes. La caché de build se poda con antigüedad (7 días) en vez de entera, para que el próximo deploy no rebuildee todo desde cero; eso además importa cuando pecl está caído, porque una capa de extensiones cacheada evita descargarlas. Los volúmenes anónimos de dev quedan documentados como limpieza manual: borrarlos desde un script de deploy podría llevarse el `var/` de un stack que está parado pero que se quiere volver a levantar.
