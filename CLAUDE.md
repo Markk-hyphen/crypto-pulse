@@ -1,7 +1,5 @@
 # Crypto Pulse (fork de Oliva)
 
-> ⚠️ **SEPARACIÓN EN CURSO (2026-10-21).** Este repo está pasando de la rama `release/plan-market-pulse` de `~/app` (Oliva) a su propio repo `Markk-hyphen/crypto-pulse` en `~/crypto-pulse`. Hasta que se ejecute `docs/runbook-separacion.md`, el código sigue en `~/app` sobre esa rama. El último paso del runbook borra este aviso.
-
 Proyecto-vidriera **"Crypto Pulse"** (Crypto Market Pulse, CMP): plataforma de inteligencia de mercado cripto en tiempo real (ingesta de fuentes públicas → enriquecimiento con IA → dashboard en vivo vía Mercure). El headline es **DevOps × IA**; cripto es el dominio de datos, no el producto.
 
 Repo propio `Markk-hyphen/crypto-pulse` (público), **fork de Oliva** como finanzas-ong: backend Symfony (FrankenPHP), frontend Vite, PostgreSQL con pgvector, tiempo real vía Mercure, colas vía RabbitMQ + Symfony Messenger, y contenedor scheduler (supercronic) para tareas programadas. Todo orquestado con Docker Compose.
