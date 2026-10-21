@@ -99,6 +99,8 @@ cmd_start() {
     OWNED_REF="$ref"
     while IFS= read -r f; do
       case "$f" in
+        agent-commits.md|commits.md)
+          echo "   [FORK]   $f  → es el log del proyecto, no se mezcla con el de Oliva: git checkout --ours -- $f";;
         backend/composer.lock|frontend/yarn.lock)
           echo "   [LOCK]   $f  → no lo resuelvas a mano: scripts/oliva/sync.sh locks";;
         backend/symfony.lock)

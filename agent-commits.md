@@ -132,3 +132,38 @@ stack del README declarando la convención "API testing: Bruno en `api/`, por ap
 health check confirma que el proceso arranca, la collection confirma que el dominio
 funciona end-to-end. Extraer una convención de archivos recién cuando la app #2
 confirme que el layout es invariante.
+
+---
+
+## [1.1.0] Oliva 1.1.0 — nombres por proyecto + sistema de actualizaciones para Oliva y sus forks
+**Hash:** `1090b30..d6b95b4` (9 commits; registrados juntos al cerrar la versión, a pedido de Marcos)
+**Rama:** `main`
+**Fecha:** 2026-10-21
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docker-compose.override.yml` / `docker-compose.prod.yml` / `docker-compose.staging.yml` | modificado | Imágenes `${COMPOSE_PROJECT_NAME}-<servicio>:<dev\|prod\|staging>` en vez de `app-*-<env>:1.0` (`1090b30`). |
+| `docker-compose.yml` | modificado | `app_network` sin `name:` fijo → `<project>_app_network` (`1090b30`). |
+| `scripts/lib/project-guard.sh` | nuevo | Guard de colisión: aborta si el project pertenece a otro checkout; rechaza apps `*-staging` (`1090b30`). |
+| `scripts/deploy.sh`, `deploy-staging.sh`, `down.sh`, `down-staging.sh` | modificado | Sourcean el guard (`1090b30`). |
+| `.github/workflows/ci.yml` | modificado | `COMPOSE_PROJECT_NAME` fijo para que bake y compose coincidan (`1090b30`); pasos `schema`/`phpunit` apagables por fork con la variable de repo `OLIVA_CI_SKIP` (`f31a329`). |
+| `frontend/yarn.lock`, `.gitignore`, `frontend/Dockerfile` | nuevo / modificado | Lock versionado + `yarn install --frozen-lockfile` (`920d6f4`). |
+| `backend/Dockerfile` | modificado | PECL y composer fijados: `amqp-2.2.0`, `apcu-5.1.28`, `xdebug-3.5.3`, composer `2.10.3` (`a857f44`); instala lo que liste `backend/php-extensions.txt` (`d6b95b4`). |
+| `backend/php-extensions.txt` | nuevo | Extension point: extensiones PHP propias de la app, vacío en Oliva (`d6b95b4`). |
+| `frontend/Caddyfile` | modificado | `trusted_proxies static private_ranges`, backport de finanzas-ong `a42aced` (`4db5de1`). |
+| `OLIVA_VERSION` | nuevo | `1.1.0` (`15fc532`). |
+| `docs/oliva/actualizaciones.md`, `docs/oliva/UPGRADING.md` | nuevo | Modelo de actualización y notas por versión para forks (`15fc532`, ampliados después). |
+| `scripts/oliva/deps.sh`, `sync.sh`, `verify.sh`, `release.sh`, `lib.sh`, `owned-paths.txt` | nuevo | Herramientas de mantenimiento y sync (`15fc532`; shellcheck en `b6893aa`; triage seguro en `d6b95b4`). |
+| `claude-commands.md` | modificado | `-f` de `claude reiniciar`, ruta de memoria genérica, comandos `claude oliva deps` / `claude oliva sync` (`15fc532`, `76d8e79`). |
+| `CLAUDE.md`, `README.md` | modificado | Sección de versiones/forks, aislamiento por app, chequeos de inicio con `deps.sh due` (`1090b30`, `15fc532`). |
+| `agent-commits.md`, `scripts/oliva/sync.sh`, `scripts/oliva/owned-paths.txt`, `docs/oliva/actualizaciones.md` | modificado | Esta entrada; el log del proyecto queda fuera del sync (gana el del fork). |
+
+### Justificación
+**Nombres por proyecto.** Un nombre fijo en Docker es global al daemon, no al repo. Con dos apps en la misma máquina, el build de finanzas-ong pisaba `app-backend-dev:1.0` y los containers de CMP quedaron apuntando a un ID huérfano: un `up` sin `--build` habría arrancado CMP con el `vendor` de finanzas. La red fija `app_network` metía los dos stacks dev en la misma red, donde el DNS de Docker hace round-robin entre los `backend`/`database` de ambas apps (el mismo bug que motivó el split de redes de la infra). En el VPS iba a pasar lo mismo con `app-backend-prod:1.0` el día que CMP se deployara al lado de finanzas. Se eligió `<project>-<servicio>:<entorno>` en vez de omitir `image:` (Compose nombraría `<project>-<servicio>` solo) porque `backend`/`worker`/`scheduler` comparten una imagen: sin nombre explícito se construirían tres veces y dev y prod se pisarían dentro del mismo proyecto. El guard cierra la deuda documentada: si el nombre de proyecto se repite entre checkouts, ahora también chocarían las imágenes, así que el chequeo pasa a ser parte del mismo fix.
+
+**Todo fijado.** Los dos incidentes de dependencias tuvieron la misma causa: algo flotante que cambió en un rebuild cualquiera (el tag `1-php8.3` de FrankenPHP rompió Mercure; el `yarn.lock` sin versionar hacía lo mismo con el frontend). Las extensiones PECL se fijaron después de ver a pecl.php.net devolver 500/504 en plena sesión.
+
+**Sistema de actualización.** Se descartó Dependabot/Renovate con PRs (el flujo es solo-dev sin PRs; un bot abriendo PRs que nadie mergea es ruido) y un cron que syncee solo (un merge puede tocar código del fork; alguien tiene que verlo). Lo elegido: recordatorios baratos en el chequeo de inicio de sesión (`deps.sh due`, `sync.sh check`), un ciclo semiautomático que solo sube versiones dentro de los rangos y la red de seguridad `verify.sh`. Los saltos de major e imagen base quedan manuales, uno por commit. La pieza clave es la propiedad de archivos (`owned-paths.txt`) con extension points: el ensayo del sync de finanzas mostró que quedarse con la versión de Oliva del Dockerfile **borraba `bcmath`** y rompía el cálculo de dinero. De ahí `backend/php-extensions.txt` y que `sync.sh` muestre lo que cambió el fork antes de sugerir nada.
+
+**Problema encontrado durante la ejecución:** el `agent-commits.md` de Oliva viaja con cada merge y chocaría con el log propio de cada fork. `sync.sh` ahora lo clasifica `[FORK]` (gana el del fork).
