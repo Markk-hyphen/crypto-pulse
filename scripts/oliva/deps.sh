@@ -153,7 +153,8 @@ cmd_report() {
 # ── update ─────────────────────────────────────────────────────────────────────
 cmd_update() {
   require_clean_tree
-  local branch="chore/deps-$(date +%F)" before after
+  local branch before after
+  branch="chore/deps-$(date +%F)"
   git switch -c "$branch"
   before="$(mktemp)"; after="$(mktemp)"
   composer_lock_versions HEAD > "$before"

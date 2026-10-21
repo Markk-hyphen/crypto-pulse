@@ -45,7 +45,7 @@ do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.ym
 
 # JWT HS256 firmado con la clave del hub (la misma que usa MercureBundle).
 jwt() {
-  local key="$1" payload="$2" b64 h p s
+  local key="$1" payload="$2" h p s
   b64() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
   h="$(printf '{"alg":"HS256","typ":"JWT"}' | b64)"
   p="$(printf '%s' "$payload" | b64)"

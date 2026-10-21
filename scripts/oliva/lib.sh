@@ -58,6 +58,7 @@ run_composer() {
 }
 
 # Para comandos que resuelven (update/outdated): ignorar solo extensiones, nunca PHP.
+# shellcheck disable=SC2034  # lo usan los scripts que sourcean este archivo
 IGNORE_EXT="--ignore-platform-req=ext-*"
 
 # yarn <args...> sobre ./frontend con la imagen de node del propio Dockerfile.
