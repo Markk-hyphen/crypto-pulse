@@ -945,3 +945,25 @@ por SSE en `crypto/feed`, items nuevos reales (ids 284+, noticias del 16-17/10),
 `embedding: null` en cada item: no es bug de 1.5, es el gap de la etapa C.
 
 **No se tocó código de la app.** Sesión de estudio y documentación únicamente.
+
+---
+
+## `PENDIENTE` — docs: runbook de separación de crypto-pulse respecto de Oliva
+
+**Rama:** `release/plan-market-pulse` · **Fecha:** 2026-10-21
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docs/runbook-separacion.md` | nuevo | Runbook en 9 fases para un agente menor: publicar Oliva 1.1.0, crear `Markk-hyphen/crypto-pulse`, mover archivos locales y datos de dev, levantar CMP desde `~/crypto-pulse`, limpiar Oliva, renombrar `~/app` → `~/oliva`, syncear finanzas-ong a 1.1.0 y limpiar lo global. Gates 🛑 donde algo se publica o se borra; plan B si pecl.php.net está caído. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+CMP nació como rama del repo de Oliva por una decisión temprana. Eso lo obligaba a convivir en `~/app` con el framework: misma carpeta = mismo project name de Compose = mismos volúmenes (`app_db_data` era a la vez la DB de CMP y la de Oliva) y, hasta Oliva 1.1.0, mismas imágenes que finanzas-ong. La separación la deja como fork independiente, igual que finanzas-ong.
+
+Decisiones (con Marcos, 2026-10-21) y descartes:
+- **Historia completa, sin reescribir** (`git clone --single-branch` de la rama). Se descartó un repo "limpio" o un `filter-repo`: los hashes de este archivo son el registro del proyecto y tienen que seguir siendo verdad, y la historia compartida con Oliva es lo que hace que los próximos syncs sean merges 3-way normales.
+- **Público**, porque es la vidriera DevOps × IA y el código ya era público dentro de Oliva.
+- **Copiar el volumen de Postgres** en vez de arrancar vacío: los checkpoints del estudio dependen de esos datos (276 noticias, 169 enrichments, los 53 huérfanos por analizar). RabbitMQ no se copia: su nodo depende del hostname del container, así que los datos no se reusarían; el sweep `app:enrich:requeue-pending` cubre lo que estuviera en vuelo.
+- **`schema:validate` apagado en el CI del repo nuevo** con la variable `OLIVA_CI_SKIP=schema` (Oliva 1.1.0), no editando `ci.yml`: el archivo es de Oliva, y editarlo arrastraría un conflicto en cada sync. Hasta ahora no saltaba solo porque el CI corre en `push:main` y CMP vivía en una rama.
+- El sync con Oliva 1.1.0 (merge `c076e57`) no se registra acá, igual que el de 2026-07-02.
