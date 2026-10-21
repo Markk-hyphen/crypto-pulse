@@ -1,0 +1,30 @@
+# Archivos que son de OLIVA (el framework). Un fork no los edita: si necesita algo
+# distinto, lo cambia en Oliva y lo baja con sync, o lo agrega en un archivo propio.
+# sync.sh usa esta lista para clasificar conflictos y para avisar de drift.
+#
+# Una línea por path; un path que termina en / cubre todo el directorio.
+# Lo que NO está acá es del fork (src/, migrations/, tests/, docs/ salvo docs/oliva/)
+# o compartido (ver SHARED abajo): ambos lados lo tocan y se combina a mano.
+
+OLIVA_VERSION
+docs/oliva/
+scripts/oliva/
+scripts/lib/
+scripts/deploy.sh
+scripts/deploy-staging.sh
+scripts/down.sh
+scripts/down-staging.sh
+.github/workflows/ci.yml
+backend/Dockerfile
+backend/frankenphp/
+frontend/Dockerfile
+frontend/Caddyfile
+docker-compose.yml
+docker-compose.prod.yml
+docker-compose.staging.yml
+docker-compose.shared-infra.yml
+
+# SHARED (informativo, sync.sh no lo usa): docker-compose.override.yml,
+# backend/composer.json, backend/config/**, frontend/package.json, .env.example,
+# .env.backend, .gitignore, CLAUDE.md, README.md, claude-commands.md.
+# Los locks (composer.lock, yarn.lock, symfony.lock) se regeneran con `sync.sh locks`.

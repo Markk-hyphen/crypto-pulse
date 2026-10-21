@@ -1,0 +1,106 @@
+# Actualizaciones: mantener Oliva vivo y bajarlo a cada app
+
+Oliva es un framework: si no se actualiza envejece (este doc nace con Node 20 ya EOL), y si
+las apps no bajan lo nuevo, divergen hasta que el merge cuesta 19 conflictos. Este doc define
+**cómo se actualiza Oliva** y **cómo cada app trae esos cambios**, a escala de 1-3 apps y un
+solo dev. No es un sistema automático: son tres scripts, una convención de propiedad de
+archivos y un recordatorio en el chequeo de inicio de sesión.
+
+## El modelo en una pantalla
+
+```
+            Oliva (repo framework)                         Fork (finanzas-ong, crypto-pulse, …)
+ ┌───────────────────────────────────────┐            ┌─────────────────────────────────────────┐
+ │ deps.sh due     ← chequeo de sesión     │            │ sync.sh check  ← chequeo de sesión      │
+ │ deps.sh report  → qué está viejo/EOL    │            │ sync.sh start  → rama + merge + triage  │
+ │ deps.sh update  → rama chore/deps-…     │            │ sync.sh locks  → regenera locks         │
+ │   bump en rangos + verify + commit      │  push main │ sync.sh verify → smoke + tests          │
+ │ (majors / imágenes base: a mano)        │ ─────────► │ merge local a main (sin PR)             │
+ │ release.sh X.Y.Z → OLIVA_VERSION + tag  │  + tag     │                                         │
+ │   exige notas en UPGRADING.md           │            │ deps.sh report → deps PROPIAS del fork  │
+ └───────────────────────────────────────┘            └─────────────────────────────────────────┘
+```
+
+Tres principios, cada uno sale de un incidente real:
+
+1. **Todo fijado, nada flotante.** Una actualización pasa cuando alguien la decide, no cuando
+   alguien rebuildea. (El tag `1-php8.3` trajo FrankenPHP 1.13.1 en un rebuild cualquiera y
+   rompió Mercure; el `yarn.lock` sin versionar hacía lo mismo con el frontend.)
+2. **Cada archivo tiene dueño.** El framework y la app no editan los mismos archivos salvo una
+   lista corta y conocida. Los conflictos de sync salen casi todos de archivos con dos dueños.
+3. **El recordatorio vive en el flujo, no en la memoria.** La memoria del agente es por repo:
+   no sirve para avisarle a un fork que Oliva avanzó. Por eso `check`/`due` van en los chequeos
+   de inicio de sesión del `CLAUDE.md` de cada proyecto.
+
+## Lado Oliva: el ciclo de mantenimiento (cada ~45 días)
+
+`scripts/oliva/deps.sh due` (offline, instantáneo) dice si toca: mira la fecha del último
+commit `chore(deps)`. Cuando toca:
+
+1. **`scripts/oliva/deps.sh report`** (~40 s, usa red). Imprime:
+   - **EOL** de PHP, Node, PostgreSQL, RabbitMQ y Symfony (endoflife.date). ⛔ = ya sin soporte.
+   - **Imágenes base**: la versión fijada contra la más nueva con la misma forma de tag (Docker Hub)
+     y supercronic (GitHub releases).
+   - **Composer**: directas desactualizadas. ↑ = entra en el rango (lo hace `update`);
+     ⇑ = salto de major, cambiar el constraint a mano. Más `composer audit` (CVEs).
+   - **Frontend**: `yarn outdated` + `yarn audit` sobre el lock versionado.
+   - **GitHub Actions**: major actual contra el último release.
+2. **`scripts/oliva/deps.sh update`**: crea `chore/deps-<fecha>`, sube patch/minor **dentro de
+   los rangos** (composer + yarn), corre `verify.sh` y, si pasa, commitea con el resumen de
+   versiones. Si falla, deja los cambios sin commitear para inspeccionar.
+3. **A mano, un commit por salto** (lo que el report marcó ⛔/⇑/↑ en imágenes): editar el
+   `FROM`/`image:`/constraint, `scripts/oliva/verify.sh`, commit `chore(deps): …`. Nunca dos
+   saltos grandes juntos: si algo se rompe, tiene que quedar claro cuál fue.
+4. Mergear la rama a `main` local, escribir la sección en `docs/oliva/UPGRADING.md` y
+   **`scripts/oliva/release.sh X.Y.Z`** (patch = solo deps; minor = features o pasos para forks;
+   major = rompe algo que el fork tiene que reescribir). `git push origin main vX.Y.Z`.
+
+`verify.sh` es la red de seguridad de todo: levanta el stack dev con `--build`, chequea
+`/health`, **Mercure de punta a punta** (publish con JWT, el suscriptor con token recibe el
+privado y el anónimo no), migraciones al día, `schema:validate`, PHPUnit y build de las
+imágenes de prod. Cada paso se saltea con `OLIVA_VERIFY_SKIP="paso otro"`.
+
+## Lado fork: traer Oliva
+
+Requisitos: remote `oliva-upstream` → `https://github.com/Markk-hyphen/oliva.git`, y el fork
+ya mergeó Oliva ≥ 1.1.0 al menos una vez (ese primer merge trae los scripts; ver
+`UPGRADING.md` 1.1.0).
+
+1. **`scripts/oliva/sync.sh check`** en cada inicio de sesión. Dice "al día" o cuántos commits
+   y desde cuándo, más las notas de `UPGRADING.md` pendientes.
+2. **`scripts/oliva/sync.sh start`**: exige árbol limpio, activa `git rerere`, crea
+   `chore/oliva-sync-<versión>`, mergea y **clasifica cada conflicto**:
+   - `[OLIVA]`: archivo del framework (`owned-paths.txt`) → tomar el de Oliva (`git checkout --theirs`).
+   - `[LOCK]`: `composer.lock`/`yarn.lock` → no tocar a mano, lo resuelve `locks`.
+   - `[MANUAL]`: archivo compartido (`CLAUDE.md`, override, `config/**`…) → combinar.
+
+   También lista el **drift**: archivos de Oliva que el fork editó desde el último sync. Cada uno
+   es un conflicto futuro asegurado: o se documenta por qué, o se devuelve a Oliva.
+3. **`scripts/oliva/sync.sh locks`**: parte del `composer.lock` **del fork** y re-aplica solo los
+   paquetes que Oliva cambió (no arrastra updates de los paquetes propios del fork). `yarn.lock`
+   se regenera contra el `package.json` del fork.
+4. `git add -A && git commit --no-edit` → **`scripts/oliva/sync.sh verify`** → si pasa,
+   `git switch main && git merge --no-ff chore/oliva-sync-…`. Push y deploy, como siempre.
+
+**Por qué merge y no rebase ni cherry-pick:** el merge preserva los hashes que registra
+`agent-commits.md`, deja un punto de sync explícito en la historia y hace que el próximo merge
+parta de un ancestro común. `git rerere` recuerda cómo se resolvió cada conflicto.
+
+## Propiedad de archivos (`scripts/oliva/owned-paths.txt`)
+
+| Dueño | Qué | En un sync |
+|---|---|---|
+| **Oliva** | Dockerfiles, `backend/frankenphp/`, los 4 compose salvo el override, `scripts/` de deploy y `scripts/oliva/`, CI, `docs/oliva/`, `OLIVA_VERSION` | Gana Oliva. Si un fork necesita otra cosa, se agrega a Oliva como opción (env var, profile) y baja a todos. |
+| **Compartido** | `docker-compose.override.yml`, `composer.json`, `package.json`, `config/**`, `.env.example`, `.env.backend`, `.gitignore`, `CLAUDE.md`, `README.md`, `claude-commands.md` | Se combina a mano; `rerere` lo aprende. |
+| **Locks** | `composer.lock`, `yarn.lock` | `sync.sh locks`. `symfony.lock`: unión a mano (raro). |
+| **Fork** | `src/`, `migrations/`, `tests/`, `docs/` (salvo `docs/oliva/`), todo lo demás | Oliva no los toca. |
+
+## Qué NO se automatizó (a propósito)
+
+- **Dependabot/Renovate con PRs:** el flujo es solo-dev sin PRs, y un bot abriendo PRs que nadie
+  mergea es ruido. Sí conviene activar en GitHub las **alertas de seguridad de Dependabot**
+  (solo avisan, no abren PRs): Settings → Code security → Dependabot alerts, en los tres repos.
+- **Cron que sincroniza solo:** un merge siempre tiene que verlo alguien (o un agente en sesión)
+  porque puede tocar código del fork. El recordatorio de sesión es el término medio.
+- **Saltos de major e imágenes base:** dependen de juicio (changelog, breaking changes). El
+  report los encuentra; el humano decide.

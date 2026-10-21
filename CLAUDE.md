@@ -4,13 +4,16 @@ Framework base para construir webapps: backend Symfony (FrankenPHP), frontend Vi
 
 Este `CLAUDE.md` es la guía operativa para agentes que trabajen sobre proyectos construidos con Oliva. La documentación humana (stack, getting started) está en `README.md`.
 
-## Forks y sync con upstream (hito pesado — tener presente al avanzar `main`)
+## Versiones, actualizaciones y forks
 
-Las apps hechas con Oliva viven en **repos separados** (ej. finanzas-ong) y derivan de este upstream. Cada fork **graduó su backend de boilerplate a código versionado por su cuenta**, partiendo de un punto anterior a que Oliva versionara su propio `src/`.
+Oliva se versiona (`OLIVA_VERSION`, tags `vX.Y.Z`) y las apps hechas con Oliva viven en **repos separados** (finanzas-ong, crypto-pulse) con un remote `oliva-upstream` que apunta acá. El sistema completo está en **`docs/oliva/actualizaciones.md`**; en corto:
 
-**Por qué importa:** cuanto más avanza `main` antes de que un fork sincronice, **más caro es el merge**. El esqueleto Symfony (`composer.json/lock`, `symfony.lock`, `bundles.php`, `config/**`) fue creado en ambos lados **sin ancestro común** → git lo marca `add/add` y no puede hacer 3-way merge: conflicto en todo el esqueleto aunque el contenido sea casi idéntico. Caso real: un fork tras ~mes y medio de divergencia = **19 archivos en conflicto**.
+- **Mantener Oliva vivo** (acá): `scripts/oliva/deps.sh due` en cada inicio de sesión; cuando dice TOCA → `deps.sh report` (EOL, imágenes, composer, yarn, actions, CVEs) → `deps.sh update` (bump dentro de rangos + `verify.sh` + commit en `chore/deps-<fecha>`) → saltos de major/imágenes base a mano, uno por commit → notas en `docs/oliva/UPGRADING.md` → `scripts/oliva/release.sh X.Y.Z` → push de `main` + tag.
+- **Bajarlo a cada fork** (en el fork): `scripts/oliva/sync.sh check` en cada inicio de sesión; si está atrás → `sync.sh start` → resolver → `sync.sh locks` → commit → `sync.sh verify` → merge local a `main`.
+- **Propiedad de archivos:** `scripts/oliva/owned-paths.txt`. Un fork no edita los archivos de Oliva; si necesita otra cosa, se agrega a Oliva como opción y baja a todos.
+- **Al cambiar algo que un fork tenga que acompañar** (renombre, variable nueva, paso manual), escribirlo en `docs/oliva/UPGRADING.md` en el mismo commit — es lo que `sync.sh` le muestra al fork. `release.sh` no publica sin esa sección.
 
-**Regla práctica (no es un sistema, solo tenerlo presente):** no dejar divergir los forks sin necesidad. Antes de un push grande a `main`, recordar que los forks activos conviene sincronizarlos (o al menos anotar que quedaron atrás). Si un fork ya tiene un análisis de sync hecho, respetarlo en vez de re-derivarlo.
+**Por qué importa:** antes de 1.1.0 nada avisaba que un fork había quedado atrás, y un fork con mes y medio de divergencia costó 19 conflictos (`add/add` del esqueleto Symfony, que hoy ya tiene ancestro común en todos los forks).
 
 ## Comandos principales
 
@@ -35,6 +38,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 - `backend/` — Symfony con FrankenPHP (Doctrine ORM/Migrations, pgvector, Mercure, Messenger)
 - `frontend/` — Vite (Node), incluye demo de Mercure en vivo (`src/js/live.js`, sección "Live" de `index.html`)
 - `docs/concepts.md` — glosario técnico acumulativo (pgvector, RabbitMQ, AMQP, etc.)
+- `docs/oliva/` — docs **del framework** que bajan a cada fork: `actualizaciones.md` (sistema de updates) y `UPGRADING.md` (notas por versión)
+- `scripts/oliva/` — herramientas de mantenimiento y sync (`deps.sh`, `sync.sh`, `verify.sh`, `release.sh`, `owned-paths.txt`)
+- `OLIVA_VERSION` — versión del framework sobre la que está el checkout
 - `docs/examples/` — esqueletos de referencia (`*.php.example`) no registrados como código de la app
 - `.env`, `.env.backend`, `.env.frontend` — variables por entorno
 - `.env.prod` — variables de producción
@@ -332,7 +338,10 @@ git status -s                      # debe estar limpio (o saber qué hay pendien
 git log --oneline -3               # orientarse en dónde quedó la sesión anterior
 docker compose ps                  # todos los servicios healthy
 docker compose exec backend bin/console doctrine:migrations:status  # sin migraciones pendientes
+scripts/oliva/deps.sh due          # ¿toca ciclo de mantenimiento de dependencias?
 ```
+
+En un **fork** se agrega además `scripts/oliva/sync.sh check` (¿Oliva avanzó?). Si alguno de los dos avisa, mencionárselo a Marcos al arrancar — no ejecutar el ciclo sin que lo pida.
 
 Verificar al **cierre** de sesión antes de cortar:
 

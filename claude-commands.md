@@ -23,3 +23,25 @@ Comandos que el usuario puede escribir en el chat para activar protocolos espec�
    d. Informar al usuario: "Contexto al X%. Estado guardado — podés abrir una sesión nueva."
 
 **Umbral por defecto:** 60%.
+
+---
+
+## `claude oliva deps`
+
+**Dónde:** en Oliva. **Qué hace:** el ciclo de mantenimiento de `docs/oliva/actualizaciones.md`.
+
+1. `scripts/oliva/deps.sh report` y mostrarle a Marcos el resumen: qué está EOL (⛔), qué saltos de imagen/major hay (⇑/↑) y CVEs.
+2. `scripts/oliva/deps.sh update` (bump dentro de rangos + verify). Si falla, diagnosticar antes de seguir.
+3. Proponer los saltos manuales **uno por commit** y esperar el OK de Marcos para cada uno (FrankenPHP, node, postgres, rabbitmq, majors de paquetes).
+4. Al cerrar: sección nueva en `docs/oliva/UPGRADING.md`, merge local a `main`, `scripts/oliva/release.sh X.Y.Z`. El push lo confirma Marcos.
+
+## `claude oliva sync`
+
+**Dónde:** en un fork. **Qué hace:** trae la última versión de Oliva.
+
+1. `scripts/oliva/sync.sh check`; si está al día, avisar y terminar.
+2. `scripts/oliva/sync.sh start` y leer las notas de `UPGRADING.md` que imprime **antes** de resolver.
+3. Resolver según la clasificación (`[OLIVA]` → theirs, `[LOCK]` → `sync.sh locks`, `[MANUAL]` → combinar conservando lo del fork). Ante una duda real sobre código del fork, preguntar.
+4. Ejecutar los pasos de "Acción requerida" de cada versión, `git commit --no-edit`, `scripts/oliva/sync.sh verify`.
+5. Si pasa: merge local a `main`. Push y deploy solo si Marcos lo pide.
+
