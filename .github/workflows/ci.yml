@@ -12,6 +12,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Los nombres de imagen son `${COMPOSE_PROJECT_NAME}-<servicio>:<entorno>`. bake y
+# `docker compose up` derivan el project name por su cuenta (y distinto: bake usa
+# "bake", compose el directorio) → sin fijarlo, `up --no-build` no encuentra la
+# imagen que bake acaba de construir. Fijarlo acá los alinea.
+env:
+  COMPOSE_PROJECT_NAME: oliva-ci
+
 jobs:
   tests:
     name: Tests (smoke + PHPUnit)
@@ -91,11 +98,16 @@ jobs:
         run: docker compose exec -T backend bin/console doctrine:migrations:migrate --no-interaction
 
       -
+        # Opt-out por fork sin editar este archivo (es de Oliva): variable de repo
+        # en GitHub, ej. `gh variable set OLIVA_CI_SKIP --body schema`. Mismos
+        # nombres de paso que OLIVA_VERIFY_SKIP de scripts/oliva/verify.sh.
         name: Doctrine Schema Validator
+        if: ${{ !contains(vars.OLIVA_CI_SKIP, 'schema') }}
         run: docker compose exec -T backend bin/console doctrine:schema:validate
 
       -
         name: Run PHPUnit
+        if: ${{ !contains(vars.OLIVA_CI_SKIP, 'phpunit') }}
         run: docker compose exec -T backend php vendor/bin/phpunit
 
   prod-config:

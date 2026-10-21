@@ -30,16 +30,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
+# PECL extensions and composer pinned like the base image: unpinned, every rebuild took
+# whatever pecl.php.net served that day. Bump on purpose (deps.sh report lists the base image).
 RUN set -eux; \
 	install-php-extensions \
-		@composer \
-		amqp \
-		apcu \
+		@composer-2.10.3 \
+		amqp-2.2.0 \
+		apcu-5.1.28 \
 		intl \
 		opcache \
 		pdo_pgsql \
 		zip \
 	;
+
+# Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
+# it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
+COPY --link php-extensions.txt /tmp/php-extensions.txt
+# hadolint ignore=SC2086
+RUN set -eux; \
+	exts="$(grep -vE '^[[:space:]]*(#|$)' /tmp/php-extensions.txt || true)"; \
+	if [ -n "$exts" ]; then install-php-extensions $exts; fi
 
 # supercronic — used by the scheduler service
 ENV SUPERCRONIC_VERSION=v0.2.46
@@ -94,7 +104,7 @@ RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
 RUN set -eux; \
 	install-php-extensions \
-		xdebug \
+		xdebug-3.5.3 \
 	;
 
 COPY --link frankenphp/conf.d/20-app.dev.ini $PHP_INI_DIR/app.conf.d/

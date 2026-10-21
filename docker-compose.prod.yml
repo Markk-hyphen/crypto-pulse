@@ -1,6 +1,8 @@
+# Imágenes `<project>-<servicio>:prod`: el project name (-p en el VPS) las hace
+# únicas por app — dos apps en el mismo host no se pisan la imagen de prod.
 services:
   backend:
-    image: app-backend-prod:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:prod
     build:
       target: frankenphp_prod
     restart: unless-stopped
@@ -14,7 +16,7 @@ services:
       - ./secrets/jwt:/app/config/jwt
 
   scheduler:
-    image: app-backend-prod:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:prod
     build:
       target: frankenphp_prod
     restart: unless-stopped
@@ -26,7 +28,7 @@ services:
     command: ["supercronic", "/etc/supercronic/crontab"]
 
   frontend:
-    image: app-frontend-prod:1.0
+    image: ${COMPOSE_PROJECT_NAME}-frontend:prod
     build:
       target: production
       args:

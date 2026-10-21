@@ -16,6 +16,10 @@ set -euo pipefail
 APP_NAME="${1:-$(basename "$PWD")}"
 STAGING_PROJECT="${APP_NAME}-staging"
 
+source "$(dirname "$0")/lib/project-guard.sh"
+assert_not_staging_name "$APP_NAME"
+assert_project_owned_here "$STAGING_PROJECT"
+
 COMPOSE=(docker compose -p "$STAGING_PROJECT"
   -f docker-compose.yml
   -f docker-compose.prod.yml

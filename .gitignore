@@ -4,6 +4,5 @@
 !backend/.env
 frontend/dist/
 frontend/src/.vite/
-frontend/yarn.lock
 secrets/
 rules-claude.md

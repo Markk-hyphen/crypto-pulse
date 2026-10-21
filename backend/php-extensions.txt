@@ -1,0 +1,4 @@
+# Extensiones PHP propias de la APP, además de las que instala Oliva en backend/Dockerfile.
+# Este archivo es del fork: Oliva lo deja vacío y nunca lo cambia.
+# Una por línea. Las PECL con versión fija (ej. redis-6.2.0); las que vienen con PHP
+# (bcmath, gmp, ...) van sin versión: las fija la imagen base.
