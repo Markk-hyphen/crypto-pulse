@@ -969,3 +969,4 @@ Decisiones (con Marcos, 2026-10-21) y descartes:
 - El sync con Oliva 1.1.0 (merge `c076e57`) no se registra acá, igual que el de 2026-07-02.
 
 _Actualizado el mismo día: hashes de Oliva tras registrar 1.1.0 en su `agent-commits.md` (`fdcb360`), y fase 8 con el conflicto nuevo de `agent-commits.md` (gana el del fork)._
+_Actualizado el mismo día: Oliva 1.1.1 (limpieza de restos de build en deploy y `deps.sh update`); el runbook publica `v1.1.0` y `v1.1.1` y finanzas se synca a 1.1.1 (mismos 6 conflictos, re-probado)._

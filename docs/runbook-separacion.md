@@ -1,4 +1,4 @@
-# Runbook — separar Crypto Pulse de Oliva (y cerrar Oliva 1.1.0)
+# Runbook — separar Crypto Pulse de Oliva (y publicar Oliva 1.1.0 + 1.1.1)
 
 > **Para quién:** un agente (Sonnet alcanza) que ejecuta pasos mecánicos. El análisis y las
 > decisiones ya están tomados (sesión Opus del 2026-10-21). **No rediseñar:** si algo no coincide
@@ -23,7 +23,7 @@
 ## Estado de partida (verificado al escribir esto)
 
 - `~/app` en rama `release/plan-market-pulse`; su historia incluye `c076e57` (merge del sync con Oliva 1.1.0) y este runbook (`150e23b`). Untracked: `PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md` (de Marcos, va a crypto-pulse).
-- `main` local = Oliva 1.1.0 (`fdcb360`, tag `v1.1.0`), **sin pushear** (origin/main está en `372515c`).
+- `main` local = Oliva 1.1.1 (`bae9d9c`, tags `v1.1.0` y `v1.1.1`), **sin pushear** (origin/main está en `372515c`).
 - Puede existir un worktree de `main` en `/tmp/claude-1000/...scratchpad/oliva` (la sesión Opus lo usó): se limpia en la fase 7.
 - Stack dev de finanzas-ong **corriendo** (ocupa `:80`). Containers `app-*` de CMP **parados**.
 - Imágenes de plan B ya taggeadas: `crypto-pulse-backend:dev` (imagen vieja de CMP, mismo `composer.lock`) y `finanzas-ong-backend:dev` (= `app-backend-dev:1.0` actual, con bcmath).
@@ -37,7 +37,7 @@
 git -C /home/marcos/app branch --show-current        # release/plan-market-pulse
 git -C /home/marcos/app status -s                    # solo: ?? PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md
 git -C /home/marcos/app merge-base --is-ancestor 150e23b HEAD && echo OK   # OK (incluye el runbook)
-git -C /home/marcos/app rev-parse --short main v1.1.0^{}   # fdcb360 fdcb360
+git -C /home/marcos/app rev-parse --short main v1.1.1^{}   # bae9d9c bae9d9c
 git -C /home/marcos/finanzas-ong status -s           # vacío
 gh auth status                                       # logueado como Markk-hyphen, scope repo
 docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'crypto-pulse-backend:dev|finanzas-ong-backend:dev'   # las 2
@@ -49,12 +49,12 @@ fallar y se usa el plan B de cada fase. No es un error del runbook.
 
 Pedir a Marcos los OK de los gates 🛑 1.1, 2.1, 4.1, 6.4, 7.5 y 9.2 (se pueden pedir juntos).
 
-## Fase 1 — Publicar Oliva 1.1.0
+## Fase 1 — Publicar Oliva 1.1.0 y 1.1.1
 
 1.1 🛑 Push de `main` y el tag:
 ```bash
-git -C /home/marcos/app push origin main v1.1.0
-git -C /home/marcos/app ls-remote origin refs/heads/main refs/tags/v1.1.0   # main → fdcb360…
+git -C /home/marcos/app push origin main v1.1.0 v1.1.1
+git -C /home/marcos/app ls-remote origin refs/heads/main refs/tags/v1.1.1   # main → bae9d9c…
 ```
 El CI de Oliva corre con este push. Si falla en `install-php-extensions` con 5xx de pecl, es
 externo: `gh run rerun --failed -R Markk-hyphen/oliva <id>` más tarde. Cualquier otro fallo: PARAR.
@@ -86,7 +86,7 @@ git remote -v                                   # origin = crypto-pulse, oliva-u
 git -C /home/marcos/crypto-pulse -c credential.helper= -c 'credential.helper=!gh auth git-credential' push -u origin main
 git -C /home/marcos/crypto-pulse ls-remote origin main      # mismo hash que: git -C /home/marcos/crypto-pulse rev-parse main
 ```
-No pushear tags (`v1.0`/`v1.1.0` son de Oliva).
+No pushear tags (`v1.0`/`v1.1.*` son de Oliva).
 
 2.4 Chequear el CI del primer push: `gh run list -R Markk-hyphen/crypto-pulse --limit 1`. Esperado:
 verde, con "Doctrine Schema Validator" *skipped*. Si falla por pecl 5xx: rerun más tarde, seguir.
@@ -156,7 +156,7 @@ Si el usuario/DB de `psql` no es `app`, leerlos de `POSTGRES_USER`/`POSTGRES_DB`
 ```bash
 OLIVA_VERIFY_SKIP="up schema prod-build" scripts/oliva/verify.sh     # health, mercure, migrations, phpunit: PASS
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/pulse.html   # 200
-scripts/oliva/sync.sh check                                           # "oliva: al día (Oliva 1.1.0)."
+scripts/oliva/sync.sh check                                           # "oliva: al día (Oliva 1.1.1)."
 ```
 (`prod-build` se saltea porque depende de pecl; si pecl responde, correrlo sin saltearlo.)
 
@@ -205,7 +205,7 @@ docker ps -a --filter label=com.docker.compose.project=app --format '{{.Names}}'
 ```bash
 mv /home/marcos/app /home/marcos/oliva
 mv /home/marcos/.claude/projects/-home-marcos-app /home/marcos/.claude/projects/-home-marcos-oliva
-git -C /home/marcos/oliva status -s && git -C /home/marcos/oliva log --oneline -1   # limpio, fdcb360
+git -C /home/marcos/oliva status -s && git -C /home/marcos/oliva log --oneline -1   # limpio, bae9d9c
 ```
 7.4 Actualizar la memoria de Oliva (`/home/marcos/.claude/projects/-home-marcos-oliva/memory/`):
 - `oliva_state.md`: reemplazar la sección "⭐ RETOMAR ACÁ" por una línea "Separación de CMP y
@@ -221,7 +221,7 @@ recomendado borrarlos recién cuando Marcos haya usado crypto-pulse un par de d�
 docker volume rm app_db_data app_rabbitmq_data app_frontend_caddy_data app_frontend_caddy_config
 ```
 
-## Fase 8 — Sync de finanzas-ong a Oliva 1.1.0
+## Fase 8 — Sync de finanzas-ong a Oliva 1.1.1
 
 finanzas-ong tiene commits locales sin pushear **a propósito**: no pushear nada en esta fase.
 Probado en un clon descartable el 2026-10-21: salen exactamente estos 6 conflictos.
@@ -255,7 +255,7 @@ git checkout MERGE_HEAD -- docker-compose.shared-infra.yml scripts/deploy-stagin
 grep -n "yarn.lock" .gitignore                          # no debe aparecer frontend/yarn.lock
 git grep -n -e '^<<<<<<< ' -e '^>>>>>>> '              # vacío (después del git add -A de abajo también)
 git add -A && git commit --no-edit
-cat OLIVA_VERSION                                       # 1.1.0
+cat OLIVA_VERSION                                       # 1.1.1
 ```
 8.4 Stack dev con los nombres nuevos (la red pasa de `app_network` a `finanzas-ong_app_network`):
 ```bash
@@ -271,10 +271,10 @@ Si `verify` falla en algo que no sea por pecl: PARAR y mostrar la salida.
 
 8.5 Merge local (sin push):
 ```bash
-git switch main && git merge --no-ff --no-edit chore/oliva-sync-1.1.0 && git branch -d chore/oliva-sync-1.1.0
+git switch main && git merge --no-ff --no-edit chore/oliva-sync-1.1.1 && git branch -d chore/oliva-sync-1.1.1
 ```
 8.6 Memoria de finanzas (`/home/marcos/.claude/projects/-home-marcos-finanzas-ong/memory/project_state.md`):
-en el párrafo "Gotcha descubierto … tag de imagen dev", reemplazar por "Resuelto en Oliva 1.1.0
+en el párrafo "Gotcha descubierto … tag de imagen dev", reemplazar por "Resuelto en Oliva 1.1.x
 (sync hecho <fecha>): imágenes `finanzas-ong-*:dev`, bcmath en `backend/php-extensions.txt`".
 Cambiar las referencias a `-home-marcos-app` por `-home-marcos-oliva`. Agregar a su `CLAUDE.md`,
 en los chequeos de inicio, `scripts/oliva/sync.sh check` si el merge no lo trajo; commitear.
