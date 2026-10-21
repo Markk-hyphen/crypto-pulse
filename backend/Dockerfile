@@ -30,11 +30,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
+# PECL extensions and composer pinned like the base image: unpinned, every rebuild took
+# whatever pecl.php.net served that day. Bump on purpose (deps.sh report lists the base image).
 RUN set -eux; \
 	install-php-extensions \
-		@composer \
-		amqp \
-		apcu \
+		@composer-2.10.3 \
+		amqp-2.2.0 \
+		apcu-5.1.28 \
 		intl \
 		opcache \
 		pdo_pgsql \
@@ -94,7 +96,7 @@ RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
 RUN set -eux; \
 	install-php-extensions \
-		xdebug \
+		xdebug-3.5.3 \
 	;
 
 COPY --link frankenphp/conf.d/20-app.dev.ini $PHP_INI_DIR/app.conf.d/
