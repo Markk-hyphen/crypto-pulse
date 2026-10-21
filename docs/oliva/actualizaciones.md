@@ -105,7 +105,13 @@ Si el cambio es específico del fork, se documenta en su `CLAUDE.md` y se asume 
 | **Oliva** | Dockerfiles, `backend/frankenphp/`, los 4 compose salvo el override, `scripts/` de deploy y `scripts/oliva/`, CI, `docs/oliva/`, `OLIVA_VERSION` | Gana Oliva. Si un fork necesita otra cosa, se agrega a Oliva como opción (env var, profile) y baja a todos. |
 | **Compartido** | `docker-compose.override.yml`, `composer.json`, `package.json`, `config/**`, `.env.example`, `.env.backend`, `.gitignore`, `CLAUDE.md`, `README.md`, `claude-commands.md` | Se combina a mano; `rerere` lo aprende. |
 | **Locks** | `composer.lock`, `yarn.lock` | `sync.sh locks`. `symfony.lock`: unión a mano (raro). |
-| **Fork** | `src/`, `migrations/`, `tests/`, `docs/` (salvo `docs/oliva/`), todo lo demás | Oliva no los toca. |
+| **Fork** | `src/`, `migrations/`, `tests/`, `docs/` (salvo `docs/oliva/`), `backend/php-extensions.txt`, todo lo demás | Oliva no los toca. |
+
+**Extension points** (para no editar archivos de Oliva): `backend/php-extensions.txt` (extensiones
+PHP de la app), `docker-compose.override.yml` (servicios de dev propios, ej. mailpit), `COMPOSE_PROFILES`
+(servicios opcionales), `OLIVA_VERIFY_SKIP` / variable de repo `OLIVA_CI_SKIP` (pasos en rojo conocido).
+Si un fork necesita cambiar un archivo de Oliva y no hay extension point, el extension point se
+agrega en Oliva.
 
 ## Qué NO se automatizó (a propósito)
 

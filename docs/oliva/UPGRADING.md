@@ -29,7 +29,11 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
    y `<app>-frontend:prod` y recrea los containers. Volúmenes, red y alias no cambian (dependen
    de `-p`, que es el mismo). Después: `docker image rm app-backend-prod:1.0 app-frontend-prod:1.0
    app-backend-staging:1.0 app-frontend-staging:1.0` cuando ninguna app del VPS siga sin syncear.
-7. **Chequeos de inicio de sesión.** Agregar al `CLAUDE.md` del fork, en "Chequeos de sanidad":
+7. **Extensiones PHP propias → `backend/php-extensions.txt`.** Si el fork había agregado
+   extensiones en `backend/Dockerfile` (finanzas-ong: `bcmath`), ese archivo es de Oliva y en
+   el merge **hay que sacarlas de ahí y listarlas en `backend/php-extensions.txt`** (una por
+   línea), antes de tomar el Dockerfile de Oliva. Si no, la imagen se construye sin ellas.
+8. **Chequeos de inicio de sesión.** Agregar al `CLAUDE.md` del fork, en "Chequeos de sanidad":
    `scripts/oliva/sync.sh check` y `scripts/oliva/deps.sh due`.
 
 **Qué cambió**
@@ -38,6 +42,7 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 - `scripts/lib/project-guard.sh`: `deploy*.sh`/`down*.sh` abortan si el project pertenece a
   otro checkout y rechazan nombres `*-staging`.
 - `frontend/yarn.lock` versionado + `--frozen-lockfile`.
+- `backend/php-extensions.txt`: extensiones PHP propias de la app sin tocar el Dockerfile.
 - Extensiones PECL y composer fijados (`amqp-2.2.0`, `apcu-5.1.28`, `xdebug-3.5.3`, composer `2.10.3`).
 - `frontend/Caddyfile`: `trusted_proxies static private_ranges` (backport de finanzas-ong `a42aced`):
   detrás del reverse-proxy compartido, el backend recibe la IP real del cliente.

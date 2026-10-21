@@ -43,6 +43,14 @@ RUN set -eux; \
 		zip \
 	;
 
+# Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
+# it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
+COPY --link php-extensions.txt /tmp/php-extensions.txt
+# hadolint ignore=SC2086
+RUN set -eux; \
+	exts="$(grep -vE '^[[:space:]]*(#|$)' /tmp/php-extensions.txt || true)"; \
+	if [ -n "$exts" ]; then install-php-extensions $exts; fi
+
 # supercronic — used by the scheduler service
 ENV SUPERCRONIC_VERSION=v0.2.46
 RUN curl -fsSL "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \

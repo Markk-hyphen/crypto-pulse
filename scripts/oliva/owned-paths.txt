@@ -28,3 +28,4 @@ docker-compose.shared-infra.yml
 # backend/composer.json, backend/config/**, frontend/package.json, .env.example,
 # .env.backend, .gitignore, CLAUDE.md, README.md, claude-commands.md.
 # Los locks (composer.lock, yarn.lock, symfony.lock) se regeneran con `sync.sh locks`.
+# Extension points del fork (nunca los cambia Oliva): backend/php-extensions.txt.

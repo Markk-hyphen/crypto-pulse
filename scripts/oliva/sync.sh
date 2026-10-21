@@ -105,7 +105,14 @@ cmd_start() {
           echo "   [LOCK]   $f  → combinar a mano (registro de recipes; casi siempre: unión de ambos)";;
         *)
           if is_owned "$f"; then
-            echo "   [OLIVA]  $f  → es del framework: git checkout --theirs -- $f  (salvo razón del fork)"
+            # NUNCA sugerir theirs a ciegas: el fork pudo haber agregado algo que necesita
+            # (caso real: bcmath en backend/Dockerfile). Mostrar qué cambió el fork.
+            echo "   [OLIVA]  $f  → es del framework. Lo que el FORK cambió desde el último sync:"
+            git diff "$(git merge-base HEAD MERGE_HEAD)" HEAD -- "$f" \
+              | grep -E '^[+-][^+-]' | grep -vE '^[+-][[:space:]]*(#|//|$)' | head -12 | sed 's/^/              /'
+            echo "            Si son solo comentarios o lo mismo que trae Oliva: git checkout --theirs -- $f"
+            echo "            Si es algo que el fork necesita: moverlo a su extension point (UPGRADING.md)"
+            echo "            o backportearlo a Oliva, y recién ahí tomar theirs."
           else
             echo "   [MANUAL] $f  → combinar: mantener lo del fork + traer lo nuevo de Oliva"
           fi;;
