@@ -1,7 +1,9 @@
 #syntax=docker/dockerfile:1
 
 # Versions
-FROM dunglas/frankenphp:1-php8.3 AS frankenphp_upstream
+# Pinned to an exact version: the floating "1-php8.3" tag pulled 1.13.1 on a rebuild and
+# its Mercure refused the existing hub config. Upgrade on purpose, then re-check Mercure.
+FROM dunglas/frankenphp:1.13.1-php8.3.35 AS frankenphp_upstream
 
 # The different stages of this Dockerfile are meant to be built into separate images
 # https://docs.docker.com/develop/develop-images/multistage-build/#stop-at-a-specific-build-stage
