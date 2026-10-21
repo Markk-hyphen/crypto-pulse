@@ -23,7 +23,7 @@
 ## Estado de partida (verificado al escribir esto)
 
 - `~/app` en rama `release/plan-market-pulse`; su historia incluye `c076e57` (merge del sync con Oliva 1.1.0) y este runbook (`150e23b`). Untracked: `PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md` (de Marcos, va a crypto-pulse).
-- `main` local = Oliva 1.1.0 (`d6b95b4`, tag `v1.1.0`), **sin pushear** (origin/main está en `372515c`).
+- `main` local = Oliva 1.1.0 (`fdcb360`, tag `v1.1.0`), **sin pushear** (origin/main está en `372515c`).
 - Puede existir un worktree de `main` en `/tmp/claude-1000/...scratchpad/oliva` (la sesión Opus lo usó): se limpia en la fase 7.
 - Stack dev de finanzas-ong **corriendo** (ocupa `:80`). Containers `app-*` de CMP **parados**.
 - Imágenes de plan B ya taggeadas: `crypto-pulse-backend:dev` (imagen vieja de CMP, mismo `composer.lock`) y `finanzas-ong-backend:dev` (= `app-backend-dev:1.0` actual, con bcmath).
@@ -37,7 +37,7 @@
 git -C /home/marcos/app branch --show-current        # release/plan-market-pulse
 git -C /home/marcos/app status -s                    # solo: ?? PROMPT-STUDY-GUIDE-AND-LOOKING-FOR-WEAKPOINTS.md
 git -C /home/marcos/app merge-base --is-ancestor 150e23b HEAD && echo OK   # OK (incluye el runbook)
-git -C /home/marcos/app rev-parse --short main v1.1.0^{}   # d6b95b4 d6b95b4
+git -C /home/marcos/app rev-parse --short main v1.1.0^{}   # fdcb360 fdcb360
 git -C /home/marcos/finanzas-ong status -s           # vacío
 gh auth status                                       # logueado como Markk-hyphen, scope repo
 docker images --format '{{.Repository}}:{{.Tag}}' | grep -E 'crypto-pulse-backend:dev|finanzas-ong-backend:dev'   # las 2
@@ -54,7 +54,7 @@ Pedir a Marcos los OK de los gates 🛑 1.1, 2.1, 4.1, 6.4, 7.5 y 9.2 (se pueden
 1.1 🛑 Push de `main` y el tag:
 ```bash
 git -C /home/marcos/app push origin main v1.1.0
-git -C /home/marcos/app ls-remote origin refs/heads/main refs/tags/v1.1.0   # main → d6b95b4…
+git -C /home/marcos/app ls-remote origin refs/heads/main refs/tags/v1.1.0   # main → fdcb360…
 ```
 El CI de Oliva corre con este push. Si falla en `install-php-extensions` con 5xx de pecl, es
 externo: `gh run rerun --failed -R Markk-hyphen/oliva <id>` más tarde. Cualquier otro fallo: PARAR.
@@ -205,7 +205,7 @@ docker ps -a --filter label=com.docker.compose.project=app --format '{{.Names}}'
 ```bash
 mv /home/marcos/app /home/marcos/oliva
 mv /home/marcos/.claude/projects/-home-marcos-app /home/marcos/.claude/projects/-home-marcos-oliva
-git -C /home/marcos/oliva status -s && git -C /home/marcos/oliva log --oneline -1   # limpio, d6b95b4
+git -C /home/marcos/oliva status -s && git -C /home/marcos/oliva log --oneline -1   # limpio, fdcb360
 ```
 7.4 Actualizar la memoria de Oliva (`/home/marcos/.claude/projects/-home-marcos-oliva/memory/`):
 - `oliva_state.md`: reemplazar la sección "⭐ RETOMAR ACÁ" por una línea "Separación de CMP y
@@ -224,7 +224,7 @@ docker volume rm app_db_data app_rabbitmq_data app_frontend_caddy_data app_front
 ## Fase 8 — Sync de finanzas-ong a Oliva 1.1.0
 
 finanzas-ong tiene commits locales sin pushear **a propósito**: no pushear nada en esta fase.
-Probado en un clon descartable el 2026-10-21: salen exactamente estos 5 conflictos.
+Probado en un clon descartable el 2026-10-21: salen exactamente estos 6 conflictos.
 
 8.1 Arrancar (este primer sync usa los scripts de Oliva desde `~/oliva`, porque finanzas todavía no los tiene):
 ```bash
@@ -241,6 +241,7 @@ git fetch -q oliva-upstream
 | `backend/frankenphp/Caddyfile` | `git checkout --theirs -- backend/frankenphp/Caddyfile` (mismo fix de Mercure, otra posición). Verificar: `grep -c protocol_version_compatibility backend/frankenphp/Caddyfile` → **1** (con el merge a mano quedaba duplicado) |
 | `docker-compose.staging.yml` | `git checkout --theirs -- docker-compose.staging.yml` (solo cambian nombres de imagen y comentarios) |
 | `claude-commands.md` | `git checkout --theirs -- claude-commands.md` (trae el `-f` y la ruta de memoria genérica; mismo protocolo) |
+| `agent-commits.md` | `git checkout --ours -- agent-commits.md` (el triage lo marca `[FORK]`: es el log de finanzas, el de Oliva no se mezcla) |
 | `README.md` | combinar: dejar el bloque de Oliva (frontend servido por Caddy + "Known gap" del worker) y **debajo** la línea de finanzas sobre infra compartida. Sacar los marcadores |
 
 Alinear además dos archivos de Oliva que finanzas tiene con comentarios distintos (drift sin

@@ -967,3 +967,5 @@ Decisiones (con Marcos, 2026-10-21) y descartes:
 - **Copiar el volumen de Postgres** en vez de arrancar vacío: los checkpoints del estudio dependen de esos datos (276 noticias, 169 enrichments, los 53 huérfanos por analizar). RabbitMQ no se copia: su nodo depende del hostname del container, así que los datos no se reusarían; el sweep `app:enrich:requeue-pending` cubre lo que estuviera en vuelo.
 - **`schema:validate` apagado en el CI del repo nuevo** con la variable `OLIVA_CI_SKIP=schema` (Oliva 1.1.0), no editando `ci.yml`: el archivo es de Oliva, y editarlo arrastraría un conflicto en cada sync. Hasta ahora no saltaba solo porque el CI corre en `push:main` y CMP vivía en una rama.
 - El sync con Oliva 1.1.0 (merge `c076e57`) no se registra acá, igual que el de 2026-07-02.
+
+_Actualizado el mismo día: hashes de Oliva tras registrar 1.1.0 en su `agent-commits.md` (`fdcb360`), y fase 8 con el conflicto nuevo de `agent-commits.md` (gana el del fork)._
