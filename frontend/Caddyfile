@@ -1,3 +1,12 @@
+{
+    servers {
+        # Keep the X-Forwarded-For set by the shared-infra reverse proxy (private
+        # Docker network) instead of overwriting it with that proxy's IP; the
+        # backend needs the real client IP for login throttling.
+        trusted_proxies static private_ranges
+    }
+}
+
 {$SERVER_NAME:localhost} {
 
     handle /api/* {

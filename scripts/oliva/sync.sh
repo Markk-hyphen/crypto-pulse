@@ -121,8 +121,10 @@ cmd_start() {
   if [[ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]]; then fork_head=HEAD; else fork_head=HEAD^1; fi
   base="$(git merge-base "$fork_head" "$ref")"
   OWNED_REF="$ref"
-  while IFS= read -r f; do is_owned "$f" && drift+=("$f"); done \
-    < <(git diff --name-only "$base" "$fork_head")
+  # Solo cuenta si además difiere de Oliva: un cambio idéntico en los dos lados no es drift.
+  while IFS= read -r f; do
+    is_owned "$f" && ! git diff --quiet "$fork_head" "$ref" -- "$f" && drift+=("$f")
+  done < <(git diff --name-only "$base" "$fork_head")
   if (( ${#drift[@]} )); then
     echo
     echo "── Drift: archivos de Oliva que este fork tiene distintos (ver scripts/oliva/owned-paths.txt) ──"

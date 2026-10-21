@@ -38,5 +38,8 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 - `scripts/lib/project-guard.sh`: `deploy*.sh`/`down*.sh` abortan si el project pertenece a
   otro checkout y rechazan nombres `*-staging`.
 - `frontend/yarn.lock` versionado + `--frozen-lockfile`.
+- Extensiones PECL y composer fijados (`amqp-2.2.0`, `apcu-5.1.28`, `xdebug-3.5.3`, composer `2.10.3`).
+- `frontend/Caddyfile`: `trusted_proxies static private_ranges` (backport de finanzas-ong `a42aced`):
+  detrás del reverse-proxy compartido, el backend recibe la IP real del cliente.
 - Sistema de actualización: `OLIVA_VERSION`, `docs/oliva/` (este archivo y `actualizaciones.md`),
   `scripts/oliva/{sync,deps,verify,release}.sh`, `scripts/oliva/owned-paths.txt`.

@@ -86,6 +86,15 @@ ya mergeó Oliva ≥ 1.1.0 al menos una vez (ese primer merge trae los scripts; 
 `agent-commits.md`, deja un punto de sync explícito en la historia y hace que el próximo merge
 parta de un ancestro común. `git rerere` recuerda cómo se resolvió cada conflicto.
 
+## Backport: un fix genérico nacido en un fork
+
+Cuando el drift muestra un archivo de Oliva que el fork cambió **por una razón que aplica a
+cualquier app** (caso real: `trusted_proxies` en `frontend/Caddyfile` de finanzas-ong, para que el
+throttling de login vea la IP real detrás del reverse-proxy compartido), no se documenta como
+excepción: se lleva a Oliva (commit propio, citando el hash del fork) y baja a todos en el
+próximo sync. Al llegar, el archivo queda idéntico en el fork y el drift desaparece solo.
+Si el cambio es específico del fork, se documenta en su `CLAUDE.md` y se asume el conflicto.
+
 ## Propiedad de archivos (`scripts/oliva/owned-paths.txt`)
 
 | Dueño | Qué | En un sync |
