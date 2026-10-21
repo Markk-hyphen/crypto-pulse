@@ -1,4 +1,9 @@
 # Development overrides
+#
+# Nombres de imagen: `<project>-<servicio>:<entorno>` (acá `:dev`). El project
+# name de Compose (directorio, `-p` o COMPOSE_PROJECT_NAME) los hace únicos por
+# app: un tag fijo (`app-backend-dev:1.0`) es global al host y el build de una
+# app pisaba la imagen de otra. Misma convención en prod.yml/staging.yml.
 services:
   database:
     ports:
@@ -10,7 +15,7 @@ services:
       - "15672:15672"
 
   worker:
-    image: app-backend-dev:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:dev
     profiles: ["queues"]
     build:
       context: ./backend
@@ -44,7 +49,7 @@ services:
     tty: true
 
   scheduler:
-    image: app-backend-dev:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:dev
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -74,7 +79,7 @@ services:
       - app_network
 
   backend:
-    image: app-backend-dev:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:dev
     build:
       target: frankenphp_dev
     ports:
@@ -96,7 +101,7 @@ services:
     tty: true
 
   frontend:
-    image: app-frontend-dev:1.0
+    image: ${COMPOSE_PROJECT_NAME}-frontend:dev
     build:
       target: development
       args:

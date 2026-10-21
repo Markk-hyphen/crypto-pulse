@@ -3,8 +3,9 @@
 #
 # Diferencia con prod: la imagen del backend usa el target `frankenphp_staging`,
 # que hereda de frankenphp_prod y suma las dev-deps (Foundry + fixtures-bundle)
-# necesarias para correr `doctrine:fixtures:load`. El tag de imagen es distinto
-# (app-backend-staging:1.0) para no pisar la imagen de prod en el host.
+# necesarias para correr `doctrine:fixtures:load`. Las imágenes son
+# `<project>-<servicio>:staging` (con `-p ong-staging` → `ong-staging-backend:staging`),
+# así nunca pisan la imagen de prod (`ong-backend:prod`) en el host.
 #
 # Staging es UNA APP MÁS en el VPS: tiene su propia DB desechable en el Postgres
 # compartido, su propio project name (-p <app>-staging) y su propio DATABASE_URL.
@@ -23,7 +24,7 @@
 
 services:
   backend:
-    image: app-backend-staging:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:staging
     build:
       target: frankenphp_staging
     # prod.yml hardcodea environment: APP_ENV=prod en backend/scheduler.
@@ -41,7 +42,7 @@ services:
       - .env.staging
 
   scheduler:
-    image: app-backend-staging:1.0
+    image: ${COMPOSE_PROJECT_NAME}-backend:staging
     build:
       target: frankenphp_staging
     environment:
@@ -51,8 +52,9 @@ services:
       - .env.backend
       - .env.staging
 
-  # Sin declarar este servicio, staging heredaría app-frontend-prod:1.0 de
-  # prod.yml (mismo target/build que prod, solo cambia el tag para no pisar
-  # la imagen de prod en el host).
+  # El frontend de staging usa su PROPIA imagen, igual que el backend: sin
+  # declarar este servicio heredaría la imagen `:prod` de prod.yml y un rebuild
+  # en staging pisaría la que sirve producción. Mismo target `production`, solo
+  # cambia el tag (el build se hereda de prod.yml).
   frontend:
-    image: app-frontend-staging:1.0
+    image: ${COMPOSE_PROJECT_NAME}-frontend:staging

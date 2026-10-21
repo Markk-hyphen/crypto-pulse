@@ -86,9 +86,12 @@ services:
       - app_network
 
 networks:
+  # Sin `name:` fijo a propósito: Compose la nombra `<project>_app_network`.
+  # Un nombre fijo (`app_network`) es GLOBAL al host Docker → dos apps Oliva en
+  # dev comparten la red y el DNS interno hace round-robin entre sus `backend`/
+  # `database` (mismo bug que motivó el split de redes de infra compartida).
   app_network:
     driver: bridge
-    name: app_network
 
 volumes:
   db_data:

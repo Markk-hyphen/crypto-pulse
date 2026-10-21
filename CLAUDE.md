@@ -24,7 +24,7 @@ El `docker-compose.override.yml` se aplica automáticamente: monta el código fu
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
-Usa imágenes compiladas (`app-backend-prod:1.0`, `app-frontend-prod:1.0`). El frontend queda expuesto en `:80`.
+Usa imágenes compiladas (`<project>-backend:prod`, `<project>-frontend:prod`; ver "Nombres de imagen" abajo). El frontend queda expuesto en `:80`.
 
 ### Build de producción
 ```bash
@@ -53,22 +53,24 @@ La base de datos usa la imagen `pgvector/pgvector:pg${POSTGRES_VERSION}` — es 
 
 ### Deuda conocida: `worker` no tiene definición de producción
 
-`docker-compose.override.yml` (dev) define `worker` con `bin/console messenger:consume`, pero no hay equivalente en `docker-compose.prod.yml` ni en el `docker-compose.yml` base. Si una app usa RabbitMQ/Messenger en serio, antes de ir a producción hay que agregar un servicio `worker` (imagen `app-backend-prod:1.0`, comando `messenger:consume`, sin exponer puertos). `scheduler` sí está cubierto en prod (usa `app-backend-prod:1.0` / target `frankenphp_prod`, igual que `backend`).
+`docker-compose.override.yml` (dev) define `worker` con `bin/console messenger:consume`, pero no hay equivalente en `docker-compose.prod.yml` ni en el `docker-compose.yml` base. Si una app usa RabbitMQ/Messenger en serio, antes de ir a producción hay que agregar un servicio `worker` (imagen `${COMPOSE_PROJECT_NAME}-backend:prod`, comando `messenger:consume`, sin exponer puertos). `scheduler` sí está cubierto en prod (usa `${COMPOSE_PROJECT_NAME}-backend:prod` / target `frankenphp_prod`, igual que `backend`).
 
 Mercure (`/.well-known/mercure`) está siempre activo vía el hub de Caddy (`backend/frankenphp/Caddyfile`); la demo de canvas en vivo (`backend/public/live.php` + `frontend/src/js/live.js`) muestra que funciona out of the box.
 
-### Deuda conocida: `scripts/deploy.sh`/`deploy-staging.sh`/`down*.sh` no tienen guard de colisión de nombre
+### Aislamiento por app: todo cuelga del project name
 
-Los 4 scripts (`scripts/deploy.sh`, `scripts/deploy-staging.sh`, `scripts/down.sh`, `scripts/down-staging.sh`) derivan el project name (`-p`) de `APP_NAME="${1:-$(basename "$PWD")}"` — o sea, del nombre del directorio en el VPS donde se clonó la app (o de un argumento explícito). Todo lo que cuelga de ahí (red `${COMPOSE_PROJECT_NAME}_app_network`, alias `${COMPOSE_PROJECT_NAME}-frontend` en `proxy_net`, sufijo `-staging`) se deriva de forma determinística por interpolación — eso funciona bien. El problema es que **`APP_NAME` mismo no está atado a nada canónico** (ni al remote de git, ni a un registro central) y **ningún script valida que ese nombre no esté ya en uso por otro stack**.
+Varias apps Oliva conviven en el mismo host (en dev, tu máquina; en prod, el VPS). Todo lo que Compose crea se deriva del **project name** (nombre del directorio, `-p <app>` o `COMPOSE_PROJECT_NAME`), y nada se nombra fijo:
 
-Escenarios concretos de rotura, encontrados analizando el caso de levantar varias apps en el mismo VPS (una de ellas con staging):
+| Recurso | Nombre | Ejemplo (`-p ong`) |
+|---|---|---|
+| Imágenes | `<project>-<servicio>:<entorno>` (`dev`/`prod`/`staging`) | `ong-backend:prod`, `ong-staging-frontend:staging` |
+| Red privada | `<project>_app_network` | `ong_app_network` |
+| Volúmenes | `<project>_<volumen>` | `ong_db_data` |
+| Alias en `proxy_net` | `<project>-frontend` | `ong-frontend` |
 
-1. **Colisión silenciosa y destructiva.** Si dos apps distintas terminan con el mismo basename de directorio (o alguien re-clona la misma app en un path nuevo con otro nombre), `down --remove-orphans` de una tira abajo los containers de la otra sin error ni warning — `docker compose -p <nombre>` no sabe que `<nombre>` "pertenece" a un repo/checkout distinto.
-2. **Ya pasó en la práctica**: `finanzas-ong` es el nombre del repo, pero en el VPS vive clonado como `~/ong` (ver notas operativas del fork). Nada ata ese nombre al repo — es una decisión manual tomada una vez al clonar. Si alguien reclona sin saberlo con otro nombre de directorio, aparece un segundo stack duplicado en paralelo, sin aviso.
-3. **`-staging` es convención, no namespace reservado.** Una app real que se llamara literalmente `algo-staging` colisionaría con el staging automático de la app `algo`.
-4. **`infra/scripts/provision-postgres.sh <db_name> <db_user>`** se tipea a mano y no se deriva de `APP_NAME` en ningún script — puede driftear del project name de compose sin que nada lo note.
+**Regla para forks:** no introducir nombres globales (`image:` con tag fijo, `name:` en redes/volúmenes, `container_name:`). Un nombre fijo es global al daemon Docker y choca en silencio con la otra app: hasta Oliva 1.1 el tag `app-backend-dev:1.0` hacía que el build de finanzas-ong pisara la imagen de CMP (y viceversa), y la red `app_network` era la misma para las dos.
 
-**Fix sugerido (no implementado):** antes de `down`/`up` en los 4 scripts, correr algo como `docker compose ls --format json` (o `docker ps --filter label=com.docker.compose.project=$APP_NAME`) y abortar con error claro si el project ya existe pero corresponde a un working dir distinto del actual (comparar por label `com.docker.compose.project.working_dir` que compose ya setea solo). Alcanza con un chequeo simple al principio de cada script — no hace falta un registro central.
+**Guard de colisión en los scripts** (`scripts/lib/project-guard.sh`, sourceado por `deploy*.sh`/`down*.sh`): antes de `down`/`up`, aborta si el project ya tiene containers levantados desde **otro** directorio (label `com.docker.compose.project.working_dir`, que Compose pone solo), y rechaza nombres de app que terminen en `-staging` (sufijo reservado). Lo que el guard **no** cubre: `infra/scripts/provision-postgres.sh` se sigue tipeando a mano y puede driftear del project name. Convención: `<app>_db`/`<app>_user` con el mismo `<app>` que el `-p`.
 
 ### Deuda conocida: environments de Bruno commiteados se ensucian solos al testear
 
@@ -217,8 +219,8 @@ stack de producción.
    (host `postgres`, `<app>_staging_user`, `<app>_staging_db`).
 3. **Build + up** (project name `-p <app>-staging` propio; staging como app en
    shared-infra). `up -d --build` buildea automáticamente cualquier servicio
-   con sección `build` (backend/scheduler con tag `app-backend-staging:1.0`,
-   target `frankenphp_staging`; frontend con tag `app-frontend-staging:1.0`) —
+   con sección `build` (backend/scheduler con tag `<app>-staging-backend:staging`,
+   target `frankenphp_staging`; frontend con tag `<app>-staging-frontend:staging`) —
    no se enumeran servicios a propósito, ver gotcha más abajo:
    ```bash
    docker compose -p <app>-staging \
