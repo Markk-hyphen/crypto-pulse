@@ -13,6 +13,7 @@
 # Motivo: el único update que rompió algo en serio fue un salto de FrankenPHP (Mercure).
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib/docker-prune.sh"
 require_repo_root
 
 DUE_DAYS="${OLIVA_DEPS_DUE_DAYS:-45}"
@@ -194,6 +195,7 @@ ${summary:-- (sin cambios en composer.lock)}
 Frontend: yarn upgrade within package.json ranges (see yarn.lock diff).
 Verified with scripts/oliva/verify.sh.
 EOF
+  prune_build_leftovers
   info "commit hecho en $branch. Si está bien: git switch main && git merge --no-ff $branch"
   rm -f "$before" "$after"
 }

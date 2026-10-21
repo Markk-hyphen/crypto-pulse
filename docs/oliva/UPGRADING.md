@@ -5,6 +5,18 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.1.1 — 2026-10-21
+
+**Acción requerida en el fork**
+
+Ninguna. En el VPS, el primer `./scripts/deploy.sh` posterior ya limpia las imágenes viejas
+sin tag que se hayan acumulado.
+
+**Qué cambió**
+
+- `scripts/lib/docker-prune.sh`: `deploy.sh`, `deploy-staging.sh` y `deps.sh update` borran al
+  final las imágenes sin tag y la caché de build de más de 7 días (`OLIVA_NO_PRUNE=1` para saltear).
+
 ## 1.1.0 — 2026-10-21
 
 **Acción requerida en el fork**

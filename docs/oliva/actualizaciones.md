@@ -114,6 +114,19 @@ PHP de la app), `docker-compose.override.yml` (servicios de dev propios, ej. mai
 Si un fork necesita cambiar un archivo de Oliva y no hay extension point, el extension point se
 agrega en Oliva.
 
+## Espacio en disco
+
+El repo casi no crece con los ciclos (un ciclo cambia líneas de los lockfiles: decenas de KB).
+Lo que crece es Docker: cada rebuild deja la imagen anterior sin tag y suma caché de build.
+`deploy.sh`, `deploy-staging.sh` y `deps.sh update` llaman al final a
+`scripts/lib/docker-prune.sh`: borra imágenes sin tag y caché de build de más de 7 días. Nunca
+toca imágenes con tag, volúmenes ni containers. Se saltea con `OLIVA_NO_PRUNE=1`.
+
+En dev queda una fuga que el script no cubre a propósito: `docker compose down` sin `-v` deja
+huérfanos los volúmenes anónimos (`node_modules` del frontend, `var/` del backend). Limpiarlos a
+mano de vez en cuando con `docker volume prune -f` (en Docker ≥ 23 borra solo anónimos sin uso;
+los volúmenes con nombre, como las DBs, no se tocan).
+
 ## Qué NO se automatizó (a propósito)
 
 - **Dependabot/Renovate con PRs:** el flujo es solo-dev sin PRs, y un bot abriendo PRs que nadie
