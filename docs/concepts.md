@@ -318,3 +318,89 @@ docker exec <app>-staging-backend-1 bin/console doctrine:fixtures:load \
 3. `AppStory` sirve para escenarios nombrados y puede llamarse desde fixtures: `AppStory::load()`.
 
 Ver `src/DataFixtures/AppFixtures.php` y `src/Story/AppStory.php` para el esqueleto con comentarios.
+
+## El sync Oliva → forks (por qué es pull, no push)
+
+Intuición correcta de entrada: **no se fuerza nada hacia los forks, y Oliva no sabe que
+existen.** No hay listener, no hay webhook, no hay daemon, no hay registro de forks. Todo
+el movimiento lo inicia el fork. El nombre "sync" es lo que engaña: suena bidireccional y
+automático, y es ninguna de las dos.
+
+### Las 3 piezas
+
+| Pieza | Dónde vive | Qué hace |
+|---|---|---|
+| Remote `oliva-upstream` | **en el fork** (`.git/config`) | el único vínculo: apunta al repo de Oliva. Oliva solo tiene `origin` = sí misma |
+| `OLIVA_VERSION` | archivo en el árbol del fork | marca con qué versión de Oliva está el checkout. Viaja en el merge, así que se actualiza solo |
+| `docs/oliva/UPGRADING.md` | archivo, baja con el código | el canal de mensajes de Oliva al fork (ver abajo) |
+
+Git **no tiene** push hacia abajo: un fork es un repo aparte y Oliva no tiene credenciales
+ni permiso para escribirle. Técnicamente no podría forzar nada aunque quisiera.
+
+### Cómo "se entera" el fork: polling, no notificación
+
+`sync.sh check` (corrido **desde el fork**) hace:
+
+1. `git fetch oliva-upstream main` — el fork va a buscar. Oliva nunca avisa.
+2. `git rev-list --count HEAD..oliva-upstream/main` — ¿cuántos commits atrás estoy?
+3. Compara su `OLIVA_VERSION` contra el de upstream (`git show oliva-upstream/main:OLIVA_VERSION`).
+4. Imprime las secciones de `UPGRADING.md` **más nuevas que su versión local**.
+
+O sea: el fork se entera **cuando alguien pregunta**. Lo que hace que la pregunta se haga
+sola no es tecnología, es un hábito escrito en `CLAUDE.md`: `sync.sh check` está en los
+chequeos de inicio de sesión. Eso es todo el "listener" que hay — un humano (o su agente)
+corriendo un comando al abrir la sesión.
+
+### Cómo se traen los cambios: un merge común
+
+`sync.sh start` = crear rama `chore/oliva-sync-<versión>` + `git merge oliva-upstream/main`.
+Un merge de toda la vida entre dos historias con ancestro común. El fork elige cuándo, y
+puede abortar. Nada se aplica sin que alguien lo corra.
+
+### Entonces, ¿dónde está el "se fuerza"? En una convención, no en un mecanismo
+
+Lo que da la sensación de imposición es **`scripts/oliva/owned-paths.txt`**: la lista de
+archivos que "son de Oliva" (`backend/Dockerfile`, `docker-compose*.yml`, `scripts/oliva/`,
+el CI…). La regla —**social, no técnica**— es que un fork no los edita. Si la respeta, esos
+archivos no divergen, el merge los trae sin conflicto, y *parece* automático. La "fuerza"
+es la disciplina de no tocarlos; git no la hace cumplir.
+
+Cuando el fork **sí** los tocó, `sync.sh start` clasifica cada conflicto:
+
+- `[OLIVA]` → es de Oliva. **No** sugiere `--theirs` a ciegas: imprime qué cambió el fork
+  en ese archivo, porque el fork puede haber agregado algo que necesita (caso real:
+  `bcmath` en el `Dockerfile`). La salida es: moverlo a un extension point o backportearlo
+  a Oliva, y recién entonces tomar theirs.
+- `[FORK]` → `agent-commits.md`/`commits.md`: log del proyecto, `--ours`.
+- `[LOCK]` → los `.lock` no se resuelven a mano: `sync.sh locks` los regenera.
+- `[MANUAL]` → todo lo demás: combinar a mano.
+
+**La clasificación es una heurística por nombre de archivo, no un análisis.** `[MANUAL]` es
+el cajón de "no sé": cae ahí todo lo que no está en `owned-paths.txt` ni es un log o un
+lock. Puede estar mal. Caso real (sync 1.1.5): `backend/config/reference.php` salió
+`[MANUAL] → combinar`, pero Oliva lo había **borrado a propósito** (destrackeo) y lo
+correcto era `git rm --cached`. El script solo ve "conflicto en archivo no-owned"; no
+distingue un `modify/delete` intencional de una divergencia real. Por eso el humano
+resuelve.
+
+### El canal de avisos: `UPGRADING.md` llega CON el código, no antes
+
+Como Oliva no puede notificar, deja las notas en un archivo versionado. Consecuencia que
+conviene tener clara: **el aviso viaja en el mismo fetch que los cambios.** No hay alerta
+previa. Si el fork no corre `check`, no se enteró — y eso es exactamente lo que pasó con
+PHP2Shell: Oliva 1.1.5 estaba parcheada y pusheada, y los dos forks siguieron corriendo
+PHP 8.3.35 vulnerable hasta que alguien corrió el sync a mano.
+
+Por eso `release.sh` se niega a publicar una versión sin su sección en `UPGRADING.md`: si
+el único canal hacia los forks es ese archivo, una release sin notas es una release muda.
+
+### Por qué NO se hizo un listener (y qué costaría)
+
+Un push real necesitaría: un registro de forks en Oliva, credenciales de escritura a cada
+repo, y CI que abra PRs. Eso invierte quién manda: hoy el fork decide y hay un humano en
+el loop justo donde el script puede equivocarse (resolución de conflictos). El precio de
+no tenerlo es el hueco de arriba — nadie avisa, hay que preguntar.
+
+El punto intermedio, que no está hecho: Oliva no puede *pushear código*, pero sí podría
+*avisar* (una GitHub Action en Oliva que al taggear abra un issue en cada fork, o los forks
+suscritos a las releases del repo). Eso daría la notificación sin tocar el modelo pull.
