@@ -3,7 +3,23 @@
 # Versions
 # Pinned to an exact version: the floating "1-php8.3" tag pulled 1.13.1 on a rebuild and
 # its Mercure refused the existing hub config. Upgrade on purpose, then re-check Mercure.
-FROM dunglas/frankenphp:1.13.1-php8.3.35 AS frankenphp_upstream
+#
+# 1.13.2-php8.3.36 (2026-10-21) es un bump de SEGURIDAD, no de rutina:
+#   - PHP 8.3.36 arregla PHP2Shell (CVE-2026-109618/109619, CVSS 9.2, RCE sin auth). El
+#     109619 es estado de request stale que un worker reusa en el request siguiente → pega
+#     de lleno en el worker mode de frankenphp_prod, no es un CVE de espectador.
+#   - FrankenPHP 1.13.2 arregla además 4 vulns propias, 2 aplican acá: fuga de fragmentos
+#     del input del cliente anterior vía error_get_last() en worker mode
+#     (GHSA-4gfw-9v29-gp9h) y thread pool ocupable por un cliente sin auth que encola y
+#     se desconecta (GHSA-fq24-r53r-xcx3). Sus upgrade notes son todas de static builds
+#     (glibc 2.28, assets de macOS) → no nos tocan, usamos la imagen Docker.
+# Existe `1.13.1-php8.3.36` (bump mínimo, solo PHP), pero se eligió 1.13.2 por esas 2
+# vulns de worker mode. Es un patch dentro del mismo minor: sin riesgo de la regresión de
+# Mercure de 1.13.0 (igual el step [mercure] de scripts/oliva/verify.sh la cubre).
+# El fix NO toma efecto en procesos vivos: hay que RECREAR los containers, no reiniciar
+# el servicio. scripts/deploy.sh ya hace `down` antes del `up`; el step [php-version] de
+# verify.sh asserta que lo que corre coincide con este pin.
+FROM dunglas/frankenphp:1.13.2-php8.3.36 AS frankenphp_upstream
 
 # The different stages of this Dockerfile are meant to be built into separate images
 # https://docs.docker.com/develop/develop-images/multistage-build/#stop-at-a-specific-build-stage
