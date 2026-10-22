@@ -5,6 +5,23 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.1.4 — 2026-10-22
+
+**Acción requerida en el fork**
+
+Ninguna en el código. Rebuild (`docker compose build` / `./scripts/deploy.sh`). Relevante sobre
+todo para forks con extensiones propias en `backend/php-extensions.txt` (ej. finanzas-ong: bcmath).
+
+**Qué cambió**
+
+- `backend/Dockerfile`: fix de orden en el stage base. El `RUN` de PIE (amqp/apcu) **purga el
+  toolchain de compilación** (`$PHPIZE_DEPS`) al terminar. En 1.1.3 ese RUN quedó ANTES del
+  extension point del fork (`install-php-extensions $exts`), que necesita `gcc` para compilar sus
+  extensiones → un fork con algo en `php-extensions.txt` fallaba el build con `gcc: not found`
+  (`exit 127`). Oliva/crypto-pulse no lo notaron porque su `php-extensions.txt` está vacío. Ahora
+  el RUN de PIE va ÚLTIMO en el stage base, después del extension point, así todos los
+  `install-php-extensions` corren con el toolchain presente y la purga limpia al final.
+
 ## 1.1.3 — 2026-10-22
 
 **Acción requerida en el fork**

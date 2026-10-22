@@ -46,13 +46,24 @@ RUN set -eux; \
 		zip \
 	;
 
+# Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
+# it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
+COPY --link php-extensions.txt /tmp/php-extensions.txt
+# hadolint ignore=SC2086
+RUN set -eux; \
+	exts="$(grep -vE '^[[:space:]]*(#|$)' /tmp/php-extensions.txt || true)"; \
+	if [ -n "$exts" ]; then install-php-extensions $exts; fi
+
 # amqp + apcu con PIE (php/pie). La imagen oficial de PIE se monta SOLO en build-time
 # (--mount=type=bind) → no queda en la imagen final. PIE baja de Packagist/GitHub, nunca de
 # pecl.php.net (en phase-out, era la causa del `exit 100`). `pie install` compila Y habilita
-# (escribe el .ini). Deps de build: el toolchain ($PHPIZE_DEPS — install-php-extensions lo deja
-# removido) + unzip (PIE extrae zips) + librabbitmq-dev (amqp lo necesita para compilar); se
-# purgan al final. librabbitmq-dev se deja a propósito: su runtime (librabbitmq) lo linkea
-# amqp.so y un --auto-remove lo borraría. Versiones pineadas exactas, igual que antes.
+# (escribe el .ini). Deps de build: el toolchain ($PHPIZE_DEPS) + unzip (PIE extrae zips) +
+# librabbitmq-dev (amqp lo necesita para compilar); se purgan al final. librabbitmq-dev se deja
+# a propósito: su runtime (librabbitmq) lo linkea amqp.so y un --auto-remove lo borraría.
+# VA ÚLTIMO EN EL STAGE BASE, DESPUÉS del extension point del fork: ese purga el toolchain, y los
+# `install-php-extensions` de arriba (incluido el del fork, ej. bcmath) necesitan gcc para
+# compilar. Si esta purga corriera antes, el bcmath del fork fallaría con `gcc: not found` (127).
+# Versiones pineadas exactas, igual que antes.
 # hadolint ignore=DL3008,SC2086
 RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
 	set -eux; \
@@ -63,14 +74,6 @@ RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/loc
 	pie install --no-cache php-amqp/php-amqp:2.2.0; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS unzip; \
 	rm -rf /var/lib/apt/lists/*
-
-# Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
-# it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
-COPY --link php-extensions.txt /tmp/php-extensions.txt
-# hadolint ignore=SC2086
-RUN set -eux; \
-	exts="$(grep -vE '^[[:space:]]*(#|$)' /tmp/php-extensions.txt || true)"; \
-	if [ -n "$exts" ]; then install-php-extensions $exts; fi
 
 # supercronic — used by the scheduler service
 ENV SUPERCRONIC_VERSION=v0.2.46
