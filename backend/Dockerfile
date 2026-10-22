@@ -30,18 +30,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
-# PECL extensions and composer pinned like the base image: unpinned, every rebuild took
-# whatever pecl.php.net served that day. Bump on purpose (deps.sh report lists the base image).
+# install-php-extensions (mlocati), pineado fresco (NO el que viene congelado en la base), SOLO
+# para lo que NO pasa por pecl.php.net: @composer (de getcomposer.org) y las extensiones bundled
+# de PHP (intl/opcache/pdo_pgsql/zip, que se compilan del source de PHP, no se bajan de pecl).
+# amqp/apcu/xdebug ya NO van por acá: migraron a PIE (ver RUN siguiente y el stage dev) porque
+# pecl.php.net está en phase-out (RFC adopt_pie_deprecate_pecl) y rompía el build con `exit 100`.
+COPY --from=mlocati/php-extension-installer:2.12.3 /usr/bin/install-php-extensions /usr/local/bin/install-php-extensions
+
 RUN set -eux; \
 	install-php-extensions \
 		@composer-2.10.3 \
-		amqp-2.2.0 \
-		apcu-5.1.28 \
 		intl \
 		opcache \
 		pdo_pgsql \
 		zip \
 	;
+
+# amqp + apcu con PIE (php/pie). La imagen oficial de PIE se monta SOLO en build-time
+# (--mount=type=bind) → no queda en la imagen final. PIE baja de Packagist/GitHub, nunca de
+# pecl.php.net (en phase-out, era la causa del `exit 100`). `pie install` compila Y habilita
+# (escribe el .ini). Deps de build: el toolchain ($PHPIZE_DEPS — install-php-extensions lo deja
+# removido) + unzip (PIE extrae zips) + librabbitmq-dev (amqp lo necesita para compilar); se
+# purgan al final. librabbitmq-dev se deja a propósito: su runtime (librabbitmq) lo linkea
+# amqp.so y un --auto-remove lo borraría. Versiones pineadas exactas, igual que antes.
+# hadolint ignore=DL3008,SC2086
+RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
+	set -eux; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get -o APT::Sandbox::User=root update; \
+	apt-get install -y --no-install-recommends $PHPIZE_DEPS librabbitmq-dev unzip; \
+	pie install --no-cache apcu/apcu:5.1.28; \
+	pie install --no-cache php-amqp/php-amqp:2.2.0; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS unzip; \
+	rm -rf /var/lib/apt/lists/*
 
 # Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
 # it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
@@ -102,10 +123,21 @@ ENV FRANKENPHP_CONFIG=""
 
 RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
-RUN set -eux; \
-	install-php-extensions \
-		xdebug-3.5.3 \
-	;
+# xdebug con PIE (php-ext-zend, pineado 3.5.3) — mismo motivo que amqp/apcu: fuera de pecl.php.net.
+# No necesita libs de sistema extra; solo el toolchain + unzip, que se purgan acá mismo.
+# `apt-get -o APT::Sandbox::User=root`: el `COPY --link php-extensions.txt /tmp/` del stage base
+# le saca el sticky 1777 a /tmp en algunos buildkit, y el sandbox `_apt` de apt no puede escribir
+# ahí (mkstemp /tmp Permission denied → `exit 100`). Como root no baja de privilegios. Es lo que
+# install-php-extensions hace por dentro; por eso el xdebug viejo nunca lo pegó.
+# hadolint ignore=DL3008,SC2086
+RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
+	set -eux; \
+	export DEBIAN_FRONTEND=noninteractive; \
+	apt-get -o APT::Sandbox::User=root update; \
+	apt-get install -y --no-install-recommends $PHPIZE_DEPS unzip; \
+	pie install --no-cache xdebug/xdebug:3.5.3; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS unzip; \
+	rm -rf /var/lib/apt/lists/*
 
 COPY --link frankenphp/conf.d/20-app.dev.ini $PHP_INI_DIR/app.conf.d/
 
