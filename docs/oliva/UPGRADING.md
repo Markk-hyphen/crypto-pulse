@@ -5,6 +5,61 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.1.5 — 2026-10-22
+
+> ⚠️ **Release de seguridad. Syncear y rebuildear cuanto antes.** Parchea dos RCE sin
+> autenticación (CVSS 9.2) que afectan a todo fork que corra la imagen base anterior.
+
+**Acción requerida en el fork**
+
+1. **Sync + rebuild, y RECREAR los containers — no basta un `restart`.** El parche no toma
+   efecto en procesos vivos: un `docker compose restart` deja los workers de FrankenPHP
+   sirviendo el PHP viejo, sin dejar rastro. `./scripts/deploy.sh` ya hace
+   `down --remove-orphans` antes del `up`, así que alcanza con eso. En dev:
+   `docker compose up -d --build --force-recreate`.
+2. **Borrar `PHP_VERSION` del `.env.backend` del fork** (si lo tiene). `.env.backend` es un
+   path SHARED: el sync NO lo baja solo, hay que hacerlo a mano. No hace falta reemplazarlo
+   por nada — la versión de PHP la fija el tag de la imagen base en `backend/Dockerfile`, que
+   es la única fuente de verdad y baja con el sync.
+3. **Destrackear `backend/config/reference.php`:** `git rm --cached backend/config/reference.php`.
+   La línea del `.gitignore` baja con el sync (también SHARED → resolver a mano), pero el
+   `rm --cached` hay que correrlo en cada fork. El archivo se queda en disco y se regenera
+   solo; no se pierde nada.
+4. **Verificar:** `scripts/oliva/verify.sh`. El step nuevo `[php-version]` falla si lo que
+   corre no es el PHP pineado — es lo que confirma que el parche realmente se aplicó.
+
+**Qué cambió**
+
+- `backend/Dockerfile`: imagen base `dunglas/frankenphp:1.13.1-php8.3.35` →
+  **`1.13.2-php8.3.36`**. PHP 8.3.36 (security release del 2026-10-21) parchea **PHP2Shell**
+  (CVE-2026-109618 + CVE-2026-109619), dos RCE sin auth, CVSS 9.2. No es un CVE de
+  espectador: el 109619 es estado de request stale que un worker reusa en el request
+  siguiente, y `frankenphp_prod` corre worker mode.
+- Se eligió FrankenPHP **1.13.2** y no el bump mínimo `1.13.1-php8.3.36` (que existe) porque
+  1.13.2 es a su vez un security release y 2 de sus 4 vulns propias aplican a esta topología:
+  fuga de fragmentos del input del cliente anterior vía `error_get_last()`/`libxml_get_errors()`
+  en worker mode (GHSA-4gfw-9v29-gp9h) y thread pool ocupable por un cliente sin auth que
+  encola requests y se desconecta (GHSA-fq24-r53r-xcx3). Sus upgrade notes son todas de
+  static builds (glibc 2.28, assets de macOS) → no aplican, acá se usa la imagen Docker.
+  Riesgo de regresión bajo: patch dentro del mismo minor.
+- **Sin cambios de dependencias.** `composer.json` ya pedía `php: >=8.3.31`, así que 8.3.36
+  lo cumple sin tocar `composer.lock`. Al ser el mismo minor el ABI de Zend no cambia: las
+  extensiones por PIE (`apcu`, `amqp`, `xdebug`) recompilan igual, sin cambiar sus pines.
+- `.env.backend`: **eliminada `PHP_VERSION`**, que no consumía nadie (ni el Dockerfile —no
+  tiene `ARG`—, ni compose, ni el código, ni el CI) y estaba 23 patches atrás. El problema no
+  era el valor viejo: se lee como "la versión de PHP del proyecto", así que al parchear un CVE
+  se bumpea esa variable, se ve el número correcto y se cree que el fix se aplicó.
+- `scripts/oliva/verify.sh`: step nuevo **`[php-version]`** (después de `[up]`). Compara el
+  `PHP_VERSION` del container contra el pin del `Dockerfile`, y falla también si el tag deja de
+  pinear un patch exacto. Un build verde no prueba que estés parcheado si el `up` reusó un
+  container vivo. Mismo criterio que `[mercure]`: cada incidente pasado se vuelve una
+  assertion.
+- `.gitignore`: **`backend/config/reference.php` destrackeado.** Es auto-generado por
+  `cache:clear` solo para autocompletado del IDE (nada en runtime lo lee), pero estaba
+  trackeado y cada build lo reescribía → todo `verify.sh` dejaba sucio un archivo commiteado
+  y bloqueaba a `release.sh`, que exige árbol limpio. La copia que había en git además quedó
+  stale (listaba `when@development`, un entorno que el proyecto ya no usa).
+
 ## 1.1.4 — 2026-10-22
 
 **Acción requerida en el fork**

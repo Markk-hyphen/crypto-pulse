@@ -6,3 +6,10 @@ frontend/dist/
 frontend/src/.vite/
 secrets/
 rules-claude.md
+
+# Auto-generado por cache:clear (auto-scripts → post-install-cmd), solo para
+# autocompletado del IDE: nada en runtime lo lee. Estaba trackeado y CADA build lo
+# reescribía, así que todo `verify.sh` dejaba sucio un archivo commiteado (y bloqueaba
+# a release.sh, que exige árbol limpio). La copia que estaba en git encima quedó stale:
+# listaba `when@development`, un entorno que el proyecto dejó de usar. Se regenera solo.
+backend/config/reference.php

@@ -8,14 +8,15 @@
 #   OLIVA_VERIFY_SKIP="schema prod-build" scripts/oliva/verify.sh
 #
 # Pasos (nombre entre corchetes = lo que acepta OLIVA_VERIFY_SKIP):
-#   [up]         docker compose up -d --build --wait (respeta COMPOSE_PROFILES del .env)
-#   [health]     GET /health
-#   [mercure]    publish con JWT + suscriptor CON token recibe el update privado y
-#                suscriptor anónimo NO (la regresión real de FrankenPHP 1.13.1)
-#   [migrations] no hay migraciones pendientes
-#   [schema]     doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
-#   [phpunit]    suite completa
-#   [prod-build] buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
+#   [up]          docker compose up -d --build --wait (respeta COMPOSE_PROFILES del .env)
+#   [php-version] el PHP que CORRE coincide con el pin de backend/Dockerfile
+#   [health]      GET /health
+#   [mercure]     publish con JWT + suscriptor CON token recibe el update privado y
+#                 suscriptor anónimo NO (la regresión real de FrankenPHP 1.13.1)
+#   [migrations]  no hay migraciones pendientes
+#   [schema]      doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
+#   [phpunit]     suite completa
+#   [prod-build]  buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
 #
 # Corre sobre la DB de dev (es la de siempre); no crea ni borra stacks.
 set -euo pipefail
@@ -42,6 +43,31 @@ do_migrations() { be bin/console doctrine:migrations:up-to-date; }
 do_schema()     { be bin/console doctrine:schema:validate; }
 do_phpunit()    { be php vendor/bin/phpunit; }
 do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend; }
+
+# Versión de PHP que CORRE en el backend vs. el pin de backend/Dockerfile.
+# Un build verde NO prueba que estés parcheado: si el `up` reusó un container vivo, sus
+# workers siguen sirviendo el PHP anterior. Es exactamente el modo de falla de un CVE como
+# PHP2Shell, donde el fix solo toma efecto al recrear el proceso — el paso que más fácil se
+# saltea en un apuro, y el que no deja rastro. Este step cierra ese loop.
+# También falla si el tag no pinea un patch exacto: un tag flotante es la regresión que ya
+# rompió Mercure una vez (ver comentario del FROM en backend/Dockerfile).
+do_php_version() {
+  local pin running
+  pin="$(backend_base_image | grep -oE 'php[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^php//')"
+  if [[ -z "$pin" ]]; then
+    warn "backend/Dockerfile no pinea un PHP exacto (x.y.z) en el FROM ... AS frankenphp_upstream"
+    warn "un tag flotante hace que un rebuild cualquiera cambie el runtime sin aviso: pinealo"
+    return 1
+  fi
+  running="$(be php -r 'echo PHP_VERSION;' | tr -d '\r')"
+  if [[ "$running" != "$pin" ]]; then
+    warn "el backend corre PHP $running pero backend/Dockerfile pinea $pin"
+    warn "si venís de bumpear la imagen base, el container es viejo:"
+    warn "  docker compose up -d --force-recreate backend"
+    return 1
+  fi
+  echo "PHP $running (coincide con el pin de backend/Dockerfile)"
+}
 
 # JWT HS256 firmado con la clave del hub (la misma que usa MercureBundle).
 jwt() {
@@ -82,6 +108,7 @@ do_mercure() {
 }
 
 step up          do_up
+step php-version do_php_version
 step health      do_health
 step mercure     do_mercure
 step migrations  do_migrations
