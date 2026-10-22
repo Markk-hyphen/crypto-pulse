@@ -216,3 +216,35 @@ Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B pa
 2. **`gcc: not found` (exit 127):** el RUN de PIE purga el toolchain al final; estaba ANTES del extension point del fork (`install-php-extensions $exts`), que necesita gcc para compilar. Un fork con algo en `php-extensions.txt` (finanzas-ong: bcmath) rompía; Oliva/crypto no, por tenerlo vacío. Fix: mover el RUN de PIE al final del stage base (1.1.4).
 
 **Problema de método encontrado durante la ejecución:** la verificación local se hacía siempre sobre Oliva (con `php-extensions.txt` vacío), que no ejercita el extension point del fork — justo el caso que el gotcha #2 rompía. Lo atrapó el `verify` de finanzas-ong (con bcmath). Regla nueva: todo cambio al Dockerfile se prueba con una extensión en `php-extensions.txt`, no solo sobre Oliva. Propagado a los 3 repos con `sync.sh`, todos en verde (crypto saltea `schema` por el drift pgvector/HNSW conocido).
+
+---
+
+## [1.1.5] fix(security): parche PHP2Shell (PHP 8.3.36 / FrankenPHP 1.13.2) + cerrar el loop de verificación
+**Hash:** ver `git log --grep "PHP2Shell"` (se registra en el mismo commit)
+**Rama:** `main`
+**Fecha:** 2026-10-22
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/Dockerfile` | modificado | Imagen base `dunglas/frankenphp:1.13.1-php8.3.35` → `1.13.2-php8.3.36`. Comentario del `FROM` ampliado con el porqué del bump (CVEs concretos, por qué 1.13.2 y no el mínimo `1.13.1-php8.3.36`, y que el fix exige RECREAR containers). |
+| `.env.backend` | modificado | Eliminada `PHP_VERSION=8.3.13` (variable muerta). En su lugar, comentario que explica que la única fuente de verdad es el tag del `FROM` y por qué no debe volver. |
+| `scripts/oliva/verify.sh` | modificado | Step nuevo `[php-version]` (corre justo después de `[up]`): compara `PHP_VERSION` del container contra el pin del Dockerfile y falla también si el tag no pinea un patch exacto. Header de pasos realineado. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+> El bump de `OLIVA_VERSION` y la sección de `docs/oliva/UPGRADING.md` van en el commit de release (`release.sh 1.1.5`), que es el paso siguiente.
+
+### Justificación
+**El parche.** PHP 8.3.36 (21 Oct 2026, release marcada `security` en php.net) arregla PHP2Shell: CVE-2026-109618 y CVE-2026-109619, dos RCE sin autenticación, CVSS 9.2. Oliva y los dos forks corrían 8.3.35, una patch por debajo. No es un CVE de espectador: el 109619 es **estado de request stale que un worker reusa en el request siguiente**, y `frankenphp_prod` corre worker mode (`FRANKENPHP_CONFIG="import worker.Caddyfile"`).
+
+**Por qué 1.13.2 y no el bump mínimo.** La nota de sesión anterior decía que no existía `1.13.1-php8.3.36` y que por eso había que mover FrankenPHP también. **Es falso** — se verificó contra Docker Hub que ese tag existe (pusheado 2026-10-21 17:45 UTC, 4 arquitecturas), así que el bump mínimo de solo-PHP era posible. Se eligió igual 1.13.2 porque es a su vez un security release y 2 de sus 4 vulns propias aplican a esta topología: fuga de fragmentos del input del cliente anterior vía `error_get_last()`/`libxml_get_errors()` en worker mode (GHSA-4gfw-9v29-gp9h) y thread pool ocupable por un cliente sin auth que encola requests y se desconecta (GHSA-fq24-r53r-xcx3). La tercera (arrays cíclicos a Go) es marginal y la "high" (embedded apps en temp dir predecible) no aplica: Oliva no usa embedded apps. Sus upgrade notes son todas de static builds (glibc 2.28, assets de macOS) → irrelevantes, acá se usa la imagen Docker. Riesgo de regresión bajo: patch dentro del mismo minor, y el warning histórico del `FROM` era por el tag **flotante** `1-php8.3`, no por un bump deliberado.
+
+**Costo real del bump: una línea.** El ejercicio confirmó que la versión de PHP vive en **un solo lugar** (`backend/Dockerfile:6`) y que nada la duplica: no hay `ARG PHP_VERSION`, `composer.json` pide `php: >=8.3.31` (8.3.36 lo cumple → sin `composer update` ni lock tocado), y al ser el mismo minor el ABI de Zend no cambia, así que las extensiones por PIE (`apcu 5.1.28`, `amqp 2.2.0`, `xdebug 3.5.3`) recompilan igual. `deps.sh` lee la imagen por `awk` del `FROM` en vez de duplicar el dato, así que siguió funcionando sin tocarlo (verificado: `backend_base_image`, detección de EOL y `report_images`).
+
+**La variable muerta era una trampa, no un valor viejo.** `.env.backend` tenía `PHP_VERSION=8.3.13`, que no consumía **nadie** (verificado sobre todo el árbol: ni Dockerfile, ni compose, ni código PHP, ni docs, ni el heredoc que arma el CI) y estaba 23 patches atrás. El riesgo no era el número desactualizado: es que se lee como "la versión de PHP del proyecto", así que en un apuro por un CVE se bumpea **eso**, se ve el número correcto y se cree que el fix se aplicó. Como `.env.backend` es un path SHARED, los dos forks cargaban la misma mentira. Se borra en el mismo commit del parche, a propósito: dejarla para después mantenía la trampa viva justo durante la ventana en que se la iba a consultar.
+
+**El hueco estructural que expuso el ejercicio.** Este CVE lo detectó Marcos leyendo las noticias, no el tooling: `deps.sh due` es **por calendario**, no por advisory, y un 9.2 explotándose activamente no puede esperar el ciclo mensual. No se resuelve en este commit (requiere decidir una fuente de advisories y dónde engancharla), queda anotado como deuda.
+
+Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de asegurar que el PHP que corre sea el que se pineó. En este CVE puntualmente, un build verde no prueba nada — el fix no toma efecto en procesos vivos, así que un `up` que reusa un container deja los workers sirviendo el PHP viejo, sin dejar rastro. Es el paso que más fácil se saltea en un apuro. El step `[php-version]` lo asserta, y de paso falla si el tag deja de pinear un patch exacto, convirtiendo en check automático la convención que hoy vive solo en un comentario (y cuya violación ya rompió Mercure una vez). Mismo criterio que el step `[mercure]`: cada incidente pasado se vuelve una assertion.
+
+**Nota de operación:** el restart ya estaba cubierto — `scripts/deploy.sh` hace `down --remove-orphans` antes del `up`, así que no quedan workers vivos con el PHP viejo. Un `up -d` suelto sobre un tag cambiado también recrea; el peligro es solo un `restart` del servicio, que no.
