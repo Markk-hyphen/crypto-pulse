@@ -5,6 +5,32 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.1.3 — 2026-10-22
+
+**Acción requerida en el fork**
+
+Ninguna en el código (el `backend/Dockerfile` es de Oliva y baja con el sync). Solo
+rebuildear: `docker compose build` (dev) o `./scripts/deploy.sh` (VPS).
+
+**Qué cambió**
+
+- `backend/Dockerfile`: **`amqp`, `apcu` y `xdebug` migradas de PECL a PIE** (`php/pie`). El
+  band-aid de 1.1.2 (pinear `install-php-extensions`) NO alcanzó: las extensiones con versión
+  pineada se siguen bajando de `pecl.php.net`, que está en phase-out e intermitente → el CI
+  seguía rompiendo con `exit 100` (ahora en `xdebug`). PIE baja de Packagist/GitHub, nunca toca
+  `pecl.php.net`. La imagen oficial de PIE se monta solo en build-time
+  (`--mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin`), no queda en la imagen final. amqp suma
+  `librabbitmq-dev` como dep de build. Versiones pineadas exactas, idénticas a antes
+  (amqp 2.2.0, apcu 5.1.28, xdebug 3.5.3).
+- `install-php-extensions` (mlocati 2.12.3) queda SOLO para lo que no pasa por pecl: `@composer`
+  y las bundled de PHP (`intl`/`opcache`/`pdo_pgsql`/`zip`).
+- **Punto de extensión del fork (`backend/php-extensions.txt`) sigue usando
+  `install-php-extensions`.** Para extensiones bundled de PHP (bcmath, gmp, …) no hay problema.
+  Si un fork agrega ahí una extensión PECL y el build flakea, migrar esa a `pie install` también.
+- Verificado con build `--no-cache` del target `frankenphp_dev`: las 3 compilan vía PIE
+  (0 menciones de pecl.php.net), cargan en runtime con las versiones correctas, amqp linkea
+  `librabbitmq.so.4`, y el toolchain de build queda purgado.
+
 ## 1.1.2 — 2026-10-22
 
 **Acción requerida en el fork**
