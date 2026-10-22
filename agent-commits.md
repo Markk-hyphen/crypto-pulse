@@ -188,3 +188,31 @@ confirme que el layout es invariante.
 Marcos preguntó si las actualizaciones periódicas engordan los proyectos. Medido el 2026-10-21 en su máquina: git no (un ciclo son decenas de KB de lockfile), Docker sí, y por cualquier rebuild, no solo por las actualizaciones. Había 4,1 GB de caché de build sin usar, 2,3 GB de imágenes recuperables y 1 GB de volúmenes anónimos huérfanos. En el VPS (droplet chico) cada `deploy.sh --build` deja ~750 MB de imagen de backend sin tag, así que el disco se llena solo con el tiempo.
 
 Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B para cuando pecl está caído van taggeadas a propósito, y el prune nunca toca volúmenes. La caché de build se poda con antigüedad (7 días) en vez de entera, para que el próximo deploy no rebuildee todo desde cero; eso además importa cuando pecl está caído, porque una capa de extensiones cacheada evita descargarlas. Los volúmenes anónimos de dev quedan documentados como limpieza manual: borrarlos desde un script de deploy podría llevarse el `var/` de un stack que está parado pero que se quiere volver a levantar.
+
+---
+
+## [1.1.2–1.1.4] Migración de extensiones PECL → PIE (sacar el build de pecl.php.net)
+**Hash:** `3c6fba2` (1.1.2, band-aid), `f7a1f9d` (1.1.3, PIE), `0c7435c` (apt sandbox + hadolint), `f32398a` (1.1.4, fix de orden)
+**Rama:** `main`
+**Fecha:** 2026-10-22
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/Dockerfile` | modificado | `amqp`/`apcu`/`xdebug` pasan de `install-php-extensions` (PECL) a `pie install` (imagen oficial `ghcr.io/php/pie:1.5.3-bin` montada en build-time, no queda en la imagen). `@composer`/`intl`/`opcache`/`pdo_pgsql`/`zip` siguen en `install-php-extensions` (pineado `mlocati/php-extension-installer:2.12.3`): no pasan por pecl. El RUN de PIE va al final del stage base y usa `-o APT::Sandbox::User=root`. |
+| `docs/oliva/UPGRADING.md` | modificado | Secciones 1.1.2 (band-aid), 1.1.3 (PIE) y 1.1.4 (fix de orden). |
+| `OLIVA_VERSION` | modificado | 1.1.1 → 1.1.4 (tres releases en el mismo día). |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+`pecl.php.net` entró en phase-out (RFC "Adopt PIE, deprecate PECL", aceptada 2025-09-20) y su REST de metadata responde intermitente, rompiendo el build de backend con `install-php-extensions ... exit code 100`. El CI de los 3 repos estaba en rojo y, peor, no se podía buildear limpio desde cero (VPS, futuro bump de PHP).
+
+**Por qué NO el camino "obvio" primero.** Se probó bumpear `install-php-extensions` a 2.12.3 (band-aid, 1.1.2): consulta el REST solo cuando hace falta, pero las extensiones con versión pineada se SIGUEN bajando de pecl.php.net. Verificó local por suerte (pecl arriba en ese momento) y el CI lo tiró igual en `xdebug`. Lección: para extensiones pecl-dependientes, bumpear el instalador no alcanza — hay que salir de pecl.
+
+**Por qué PIE y por qué híbrido.** Al verificar contra Packagist (no de memoria: el corte de conocimiento era pre-ecosistema-PIE), los tres (`xdebug/xdebug`, `apcu/apcu`, `php-amqp/php-amqp`) ya existen como `php-ext` instalables con PIE, que baja de Packagist/GitHub y nunca toca pecl. Se migran esos tres; el resto (composer de getcomposer, y las bundled de PHP que se compilan del source) no toca pecl, así que queda en `install-php-extensions` — que además resuelve solo las libs de sistema. PIE no instala libs de SO: `amqp` necesitó `librabbitmq-dev` explícito.
+
+**Dos gotchas no obvios, cada uno un release más (ver [[oliva-reference]] #12):**
+1. **apt no podía escribir `/tmp`** (`mkstemp Permission denied` → exit 100): el `COPY --link php-extensions.txt /tmp/` le saca el sticky 1777 en el buildkit del CI, y el sandbox `_apt` falla. Fix: `apt-get -o APT::Sandbox::User=root update` (como hacía install-php-extensions por dentro). También se silenció hadolint DL3008/SC2086 en los RUN de PIE (no se pinean paquetes apt a propósito).
+2. **`gcc: not found` (exit 127):** el RUN de PIE purga el toolchain al final; estaba ANTES del extension point del fork (`install-php-extensions $exts`), que necesita gcc para compilar. Un fork con algo en `php-extensions.txt` (finanzas-ong: bcmath) rompía; Oliva/crypto no, por tenerlo vacío. Fix: mover el RUN de PIE al final del stage base (1.1.4).
+
+**Problema de método encontrado durante la ejecución:** la verificación local se hacía siempre sobre Oliva (con `php-extensions.txt` vacío), que no ejercita el extension point del fork — justo el caso que el gotcha #2 rompía. Lo atrapó el `verify` de finanzas-ong (con bcmath). Regla nueva: todo cambio al Dockerfile se prueba con una extensión en `php-extensions.txt`, no solo sobre Oliva. Propagado a los 3 repos con `sync.sh`, todos en verde (crypto saltea `schema` por el drift pgvector/HNSW conocido).
