@@ -53,10 +53,11 @@ RUN set -eux; \
 # removido) + unzip (PIE extrae zips) + librabbitmq-dev (amqp lo necesita para compilar); se
 # purgan al final. librabbitmq-dev se deja a propósito: su runtime (librabbitmq) lo linkea
 # amqp.so y un --auto-remove lo borraría. Versiones pineadas exactas, igual que antes.
+# hadolint ignore=DL3008,SC2086
 RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
 	set -eux; \
 	export DEBIAN_FRONTEND=noninteractive; \
-	apt-get update; \
+	apt-get -o APT::Sandbox::User=root update; \
 	apt-get install -y --no-install-recommends $PHPIZE_DEPS librabbitmq-dev unzip; \
 	pie install --no-cache apcu/apcu:5.1.28; \
 	pie install --no-cache php-amqp/php-amqp:2.2.0; \
@@ -124,10 +125,15 @@ RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
 # xdebug con PIE (php-ext-zend, pineado 3.5.3) — mismo motivo que amqp/apcu: fuera de pecl.php.net.
 # No necesita libs de sistema extra; solo el toolchain + unzip, que se purgan acá mismo.
+# `apt-get -o APT::Sandbox::User=root`: el `COPY --link php-extensions.txt /tmp/` del stage base
+# le saca el sticky 1777 a /tmp en algunos buildkit, y el sandbox `_apt` de apt no puede escribir
+# ahí (mkstemp /tmp Permission denied → `exit 100`). Como root no baja de privilegios. Es lo que
+# install-php-extensions hace por dentro; por eso el xdebug viejo nunca lo pegó.
+# hadolint ignore=DL3008,SC2086
 RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
 	set -eux; \
 	export DEBIAN_FRONTEND=noninteractive; \
-	apt-get update; \
+	apt-get -o APT::Sandbox::User=root update; \
 	apt-get install -y --no-install-recommends $PHPIZE_DEPS unzip; \
 	pie install --no-cache xdebug/xdebug:3.5.3; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS unzip; \
