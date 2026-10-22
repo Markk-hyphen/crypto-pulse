@@ -220,7 +220,7 @@ Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B pa
 ---
 
 ## [1.1.5] fix(security): parche PHP2Shell (PHP 8.3.36 / FrankenPHP 1.13.2) + cerrar el loop de verificación
-**Hash:** ver `git log --grep "PHP2Shell"` (se registra en el mismo commit)
+**Hash:** `7c8bfd4` (parche), `e400f69` (untrack + UPGRADING), `2b3f09f` (release 1.1.5 + tag `v1.1.5`)
 **Rama:** `main`
 **Fecha:** 2026-10-22
 
@@ -230,9 +230,11 @@ Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B pa
 | `backend/Dockerfile` | modificado | Imagen base `dunglas/frankenphp:1.13.1-php8.3.35` → `1.13.2-php8.3.36`. Comentario del `FROM` ampliado con el porqué del bump (CVEs concretos, por qué 1.13.2 y no el mínimo `1.13.1-php8.3.36`, y que el fix exige RECREAR containers). |
 | `.env.backend` | modificado | Eliminada `PHP_VERSION=8.3.13` (variable muerta). En su lugar, comentario que explica que la única fuente de verdad es el tag del `FROM` y por qué no debe volver. |
 | `scripts/oliva/verify.sh` | modificado | Step nuevo `[php-version]` (corre justo después de `[up]`): compara `PHP_VERSION` del container contra el pin del Dockerfile y falla también si el tag no pinea un patch exacto. Header de pasos realineado. |
+| `.gitignore` | modificado | Ignora `backend/config/reference.php`, con el porqué. |
+| `backend/config/reference.php` | eliminado del índice | `git rm --cached` (queda en disco). Auto-generado por `cache:clear` solo para autocompletado del IDE. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección 1.1.5, la primera de esta serie con **4 pasos** de acción requerida en el fork, no "ninguna". |
+| `OLIVA_VERSION` | modificado | 1.1.4 → 1.1.5. |
 | `agent-commits.md` | modificado | Esta entrada. |
-
-> El bump de `OLIVA_VERSION` y la sección de `docs/oliva/UPGRADING.md` van en el commit de release (`release.sh 1.1.5`), que es el paso siguiente.
 
 ### Justificación
 **El parche.** PHP 8.3.36 (21 Oct 2026, release marcada `security` en php.net) arregla PHP2Shell: CVE-2026-109618 y CVE-2026-109619, dos RCE sin autenticación, CVSS 9.2. Oliva y los dos forks corrían 8.3.35, una patch por debajo. No es un CVE de espectador: el 109619 es **estado de request stale que un worker reusa en el request siguiente**, y `frankenphp_prod` corre worker mode (`FRANKENPHP_CONFIG="import worker.Caddyfile"`).
@@ -248,3 +250,7 @@ Qué se limpia y qué no: solo imágenes **sin tag**. Las imágenes de plan B pa
 Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de asegurar que el PHP que corre sea el que se pineó. En este CVE puntualmente, un build verde no prueba nada — el fix no toma efecto en procesos vivos, así que un `up` que reusa un container deja los workers sirviendo el PHP viejo, sin dejar rastro. Es el paso que más fácil se saltea en un apuro. El step `[php-version]` lo asserta, y de paso falla si el tag deja de pinear un patch exacto, convirtiendo en check automático la convención que hoy vive solo en un comentario (y cuya violación ya rompió Mercure una vez). Mismo criterio que el step `[mercure]`: cada incidente pasado se vuelve una assertion.
 
 **Nota de operación:** el restart ya estaba cubierto — `scripts/deploy.sh` hace `down --remove-orphans` antes del `up`, así que no quedan workers vivos con el PHP viejo. Un `up -d` suelto sobre un tag cambiado también recrea; el peligro es solo un `restart` del servicio, que no.
+
+**Hallazgo lateral: `backend/config/reference.php` estaba trackeado y cada build lo reescribía.** Lo expuso el propio `verify.sh` de este parche, que dejó el árbol sucio. Es auto-generado (`cache:clear`, vía `auto-scripts` → `post-install-cmd`) y solo sirve para el autocompletado del IDE: nada en runtime lo lee. Es la misma clase de problema que los environments de Bruno ya documentados en `CLAUDE.md` —archivo trackeado que una herramienta reescribe sola—, pero acá con un costo extra: `release.sh` exige árbol limpio, así que un archivo que se ensucia en cada build bloquea el release justo cuando se quiere publicar rápido. Encima la copia que estaba en git quedó **stale**: listaba `when@development`, un entorno que el proyecto dejó de usar cuando `APP_ENV` pasó a nombres cortos (PASO 1.1), así que lo versionado era además incorrecto. Se destrackeó en vez de commitear la regeneración (volvería a ensuciarse en el build siguiente). Verificado antes de sacarlo del índice que se regenera: borrado del disco + `cache:clear` lo recrea idéntico en tamaño (1577 líneas).
+
+**Deuda que este ejercicio expuso y NO se resolvió acá:** `deps.sh due` avisa **por calendario**, no por advisory. Un CVSS 9.2 explotándose activamente no puede esperar el ciclo mensual, y este lo detectó Marcos leyendo las noticias, no el tooling. No se improvisó un fix en el commit del parche a propósito: requiere decidir una fuente de advisories (GitHub Security Advisories, feed de php.net) y dónde engancharla, y mezclarlo con un parche urgente habría sido meter una decisión de diseño sin discutir en un commit que tiene que ser revisable de un vistazo.
