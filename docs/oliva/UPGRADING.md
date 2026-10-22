@@ -5,6 +5,27 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.1.2 — 2026-10-22
+
+**Acción requerida en el fork**
+
+Ninguna en el código (el `backend/Dockerfile` es de Oliva y baja con el sync). Solo
+rebuildear: `docker compose build` (dev) o `./scripts/deploy.sh` (VPS). Esto
+destraba los builds limpios desde cero, que estaban rotos por `install-php-extensions
+... exit code 100`.
+
+**Qué cambió**
+
+- `backend/Dockerfile`: `install-php-extensions` pasa a pinearse fresco desde
+  `mlocati/php-extension-installer:2.12.3` (en vez del que viene congelado en la imagen
+  base). El viejo bajaba siempre la lista REST de metadata de `pecl.php.net` y rompía con
+  `exit 100` ahora que ese endpoint está en phase-out (PECL deprecado, RFC
+  `adopt_pie_deprecate_pecl`). El 2.12.x solo la consulta cuando hace falta.
+- **Deuda viva — TODO(PIE):** esto es un band-aid; seguimos en PECL. La salida definitiva
+  es migrar los `install-php-extensions` a `pie install vendor/pkg`. Bloqueado hoy porque
+  PIE solo tiene publicado `xdebug`, no `amqp` ni `apcu`. Migrar el día que esos dos estén
+  disponibles como paquetes PIE.
+
 ## 1.1.1 — 2026-10-21
 
 **Acción requerida en el fork**

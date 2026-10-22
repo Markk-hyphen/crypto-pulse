@@ -30,6 +30,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	git \
 	&& rm -rf /var/lib/apt/lists/*
 
+# install-php-extensions pineado fresco (NO el que viene congelado en la imagen base): el viejo
+# bajaba SIEMPRE la lista REST de metadata de pecl.php.net y rompía con `exit 100` cuando ese
+# endpoint está en phase-out/caído (PECL deprecado — RFC adopt_pie_deprecate_pecl). El 2.12.x
+# solo la consulta cuando hace falta → build resiliente. Band-aid: seguimos en PECL.
+# TODO(PIE): migrar los `install-php-extensions` a `pie install vendor/pkg` el día que amqp y
+# apcu estén publicados como paquetes PIE (hoy solo xdebug lo está). Esa es la salida definitiva
+# de pecl.php.net; ver deuda en docs/oliva/UPGRADING.md.
+COPY --from=mlocati/php-extension-installer:2.12.3 /usr/bin/install-php-extensions /usr/local/bin/install-php-extensions
+
 # PECL extensions and composer pinned like the base image: unpinned, every rebuild took
 # whatever pecl.php.net served that day. Bump on purpose (deps.sh report lists the base image).
 RUN set -eux; \
