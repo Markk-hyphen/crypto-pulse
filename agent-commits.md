@@ -970,3 +970,22 @@ Decisiones (con Marcos, 2026-10-21) y descartes:
 
 _Actualizado el mismo día: hashes de Oliva tras registrar 1.1.0 en su `agent-commits.md` (`fdcb360`), y fase 8 con el conflicto nuevo de `agent-commits.md` (gana el del fork)._
 _Actualizado el mismo día: Oliva 1.1.1 (limpieza de restos de build en deploy y `deps.sh update`); el runbook publica `v1.1.0` y `v1.1.1` y finanzas se synca a 1.1.1 (mismos 6 conflictos, re-probado)._
+
+---
+
+## `edcec13` — brand: wordmark + ícono CP y favicon propio de CMP
+
+**Rama:** `main` · **Fecha:** 2026-10-23
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `frontend/public/cp-wordmark-dark.png` | nuevo | Wordmark "Crypto Pulse" 3200×1600, fondo verde bosque, con motivo de línea de pulso (heartbeat) y tagline. Para uso en LinkedIn (imagen de post/banner). |
+| `frontend/public/cp-icon.png` | nuevo | Ícono cuadrado monograma "CP" 1600×1600, esquinas transparentes. Para logo/avatar de proyecto. |
+| `frontend/public/favicon.ico` | modificado | Reemplaza el placeholder vacío (0 bytes) por un `.ico` multi-tamaño (16/32/48/64/128/256) con el monograma "CP" relleno. |
+| `frontend/pulse.html` | modificado | `<link rel="icon" href="/favicon.ico" sizes="any">` explícito. |
+| `frontend/index.html` | modificado | Ídem. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+CMP no tenía ningún asset de marca: el `favicon.ico` era un placeholder de 0 bytes y el branding era solo texto (wordmark CSS en el nav). Marcos sube el proyecto a LinkedIn y pidió un logo temporal. Se generaron los PNG al vuelo (HTML + headless Chrome, `--screenshot`), respetando la identidad heredada de Oliva: Playfair Display + verde hoja `#8cb84a` sobre verde bosque `#080f04`, agregando un motivo de "pulso" (línea EKG) propio del dominio. El favicon se bajó de un render de 512px con Pillow (venv local) a un `.ico` multi-tamaño real. Son temporales/vidriera, no una identidad de marca diseñada — la estética verde-olivo es del framework, no pensada para cripto.
