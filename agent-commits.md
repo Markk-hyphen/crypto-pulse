@@ -438,3 +438,31 @@ Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
 **Sintaxis PIE en el extension point:** el comentario del archivo invitaba a `redis-6.2.0`, que sigue bajando de pecl.php.net — la dependencia que Oliva abandonó en 1.1.2. No se cambió el `php-extensions.txt` de Oliva: es del fork, y editar su cabecera le generaría conflicto a todo fork que haya agregado líneas.
 
 **Descartado con pruebas** (para no reabrirlo): la purga `--auto-remove` del RUN de PIE no borra libs de runtime (gd/gmp andan); con pecl.php.net caído, las extensiones bundled instalan igual (el `Updating channel` falla y sigue).
+
+## [1.4.2] fix: cron en prod vía `COMPOSE_PROFILES` del host + aviso si falta (#7 de la auditoría)
+**Hash:** `1ad0625`
+**Rama:** `main`
+**Fecha:** 2026-10-23
+**Origen:** auditoría "puntos sensibles para forks" (#7). Va en la release 1.4.2 (sin publicar).
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/lib/cron-guard.sh` | nuevo | `warn_if_cron_inactive`: si `backend/scheduler/crontab` tiene tareas y `config --services` no incluye `scheduler`, imprime `!! CRON INACTIVO` con el fix. No aborta. Silencioso si Compose no resuelve la config. |
+| `scripts/deploy.sh` | modificado | Sourcea el guard y lo llama al final. El mensaje final ya no pide `--profile cron` (editar el script). Comentario del `down` corregido: el `up` sí respeta los profiles del `.env`. |
+| `scripts/deploy-staging.sh` | modificado | Sourcea y llama el guard al final. |
+| `AGENTS.md` | modificado | Tabla de servicios, bloque shared-infra y runbook: `COMPOSE_PROFILES` en el `.env` del host es el mecanismo. Sale el ítem de cron de la deuda de profiles. |
+| `.env.example` | modificado | Aclara que en prod vale el `.env` del host y que el deploy avisa. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección `## 1.4.2 — sin publicar`. |
+| `agent-commits.md` | modificado | Esta entrada (commit aparte, pedido después del commit del fix). |
+
+### Justificación
+**El mensaje del script le pedía al fork romper la regla de propiedad.** `deploy.sh` es OLIVA-owned; "agregá `--profile cron` al up" solo se cumple editándolo, y el próximo sync lo pisa. El mecanismo correcto ya existía y estaba verificado (`config --services` respeta `COMPOSE_PROFILES` del `.env`): faltaba decirlo.
+
+**Por qué un aviso y no solo docs:** el modo de falla es silencioso (el scheduler no levanta y ninguna tarea corre, sin error). finanzas-ong necesita cron en prod (auto-confirm de pagos, reintentos de notificaciones) y su `.env.example` tiene `COMPOSE_PROFILES=` vacío: exactamente el caso.
+
+**Por qué preguntarle a Compose y no parsear el `.env`:** `config --services` resuelve lo mismo que el `up` (`.env`, variable exportada, overlays). Un parser propio driftearía.
+
+**Por qué no aborta:** un fork puede tener el crontab lleno y elegir no correr cron en un host puntual; el deploy no debe fallar por eso. Si Compose falla al resolver, no se avisa (sería un falso positivo).
+
+**Descartado:** sumar el aviso a `./oliva doctor`. En dev no tener `cron` activo es normal y sería ruido (decisión de Marcos).
