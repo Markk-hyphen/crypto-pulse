@@ -5,6 +5,42 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.3.0 — 2026-10-22
+
+> Feature: "el aviso por advisory". Chequeo de CVEs fuera del ciclo de 45 días, y una
+> capa nueva que antes no miraba nadie: los CVEs del SO y los binarios DENTRO de las
+> imágenes base (Trivy). Nada que instalar en el host: Trivy corre como contenedor.
+
+**Acción requerida en el fork**
+
+1. **Sync.** Baja `scripts/oliva/deps.sh` (nuevos subcomandos `audit` y `scan-images`),
+   el job `image-scan` del CI y `.trivyignore`. `.gitignore` y `CLAUDE.md` son SHARED →
+   resolver a mano el merge (agregar la línea `.oliva/` al `.gitignore` y el renglón de
+   `deps.sh audit` en "Chequeos de sanidad").
+2. **Correr el primer audit:** `scripts/oliva/deps.sh audit`. Baja la DB de Trivy y escanea
+   las 5 imágenes base. Deja la fecha en `.oliva/audit-state` (gitignored, por-repo). De ahí
+   en más, `scripts/oliva/deps.sh due` avisa cuando pasaron >7 días sin audit.
+3. **(Opcional) Si un CVE HIGH/CRITICAL con fix es infixable** (espera rebuild del upstream)
+   o no aplica a la app: anotarlo en `.trivyignore` con su justificación, para que no siga
+   marcando. Trivy ya filtra por `--ignore-unfixed`, así que esto es excepcional.
+4. **(Opcional) Apagar el scan en CI** si molesta en un fork puntual:
+   `gh variable set OLIVA_CI_SKIP --body trivy` (se concatena con los otros tokens, ej. `schema trivy`).
+
+**Qué cambió**
+
+- `scripts/oliva/deps.sh`: subcomando **`audit`** (solo CVEs, a demanda: `composer audit` +
+  `yarn audit` + Trivy sobre las imágenes base) y **`scan-images`** (solo Trivy, lo usa el CI).
+  `due` ahora también reporta la frescura del audit (umbral `OLIVA_AUDIT_DUE_DAYS`, default 7).
+  `report` incluye la sección de Trivy. Trivy pinneado en `TRIVY_VERSION` (0.72.0; nunca < 0.71.1
+  por el incidente de supply-chain de la v0.69.4).
+- `.github/workflows/ci.yml`: job **`image-scan`** (report-only, no rompe `main`; opt-out
+  `OLIVA_CI_SKIP=trivy`). Usa el mismo Trivy pinneado vía `docker run`, no la `trivy-action`.
+- `.trivyignore` (nuevo, SHARED) y `.gitignore` (`.oliva/`).
+- **Por qué una sola fuente por capa y no varias:** las bases de advisories de paquetes
+  (Packagist/GHSA/OSV/NVD) se alimentan entre sí → apilarlas sobre el mismo lock es redundante.
+  La robustez viene de cubrir capas distintas; la única descubierta eran las imágenes. Detalle en
+  `docs/oliva/actualizaciones.md`.
+
 ## 1.2.0 — 2026-10-22
 
 > Bump de dos imágenes base que llegaron a EOL: Node y RabbitMQ. Node es un swap

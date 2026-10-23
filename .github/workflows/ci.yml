@@ -152,3 +152,22 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: backend/Dockerfile
+
+  image-scan:
+    # La capa que composer/yarn audit NO ven: CVEs del SO y los binarios DENTRO de
+    # las imágenes base (Trivy). Report-only a propósito (no rompe main con el `|| true`):
+    # un CVE de imagen base puede ser infixable hasta que el upstream rebuildee. Usa el
+    # MISMO Trivy pinneado que scripts/oliva/deps.sh (una sola fuente de verdad para la
+    # versión, vía `docker run` — no la trivy-action, cuyos tags estuvieron comprometidos
+    # en 2026-03). Opt-out por fork: `gh variable set OLIVA_CI_SKIP --body trivy`.
+    name: Image CVE scan (Trivy)
+    runs-on: ubuntu-latest
+    if: ${{ !contains(vars.OLIVA_CI_SKIP, 'trivy') }}
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+
+      -
+        name: Scan base images
+        run: scripts/oliva/deps.sh scan-images || true

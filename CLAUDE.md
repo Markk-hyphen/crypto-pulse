@@ -339,10 +339,15 @@ git status -s                      # debe estar limpio (o saber qué hay pendien
 git log --oneline -3               # orientarse en dónde quedó la sesión anterior
 docker compose ps                  # todos los servicios healthy
 docker compose exec backend bin/console doctrine:migrations:status  # sin migraciones pendientes
-scripts/oliva/deps.sh due          # ¿toca ciclo de mantenimiento de dependencias?
+scripts/oliva/deps.sh due          # ¿toca ciclo de deps (~45d)? ¿toca audit de seguridad (~7d)?
 ```
 
-En un **fork** se agrega además `scripts/oliva/sync.sh check` (¿Oliva avanzó?). Si alguno de los dos avisa, mencionárselo a Marcos al arrancar — no ejecutar el ciclo sin que lo pida.
+`deps.sh due` reporta DOS cadencias: el ciclo de deps (frescura, ~45 días → `report`/`update`)
+y el audit de CVEs (seguridad, ~7 días → `scripts/oliva/deps.sh audit`, que corre composer +
+yarn audit + Trivy sobre las imágenes base). Si el audit avisa que TOCA, correr `deps.sh audit`
+— un CVE no espera al ciclo de 45 días. Ver `docs/oliva/actualizaciones.md` ("El aviso por advisory").
+
+En un **fork** se agrega además `scripts/oliva/sync.sh check` (¿Oliva avanzó?). Si alguno de los tres avisa, mencionárselo a Marcos al arrancar — no ejecutar el ciclo ni el audit sin que lo pida.
 
 Verificar al **cierre** de sesión antes de cortar:
 

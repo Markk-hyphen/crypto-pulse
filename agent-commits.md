@@ -278,3 +278,31 @@ Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de a
 **Efecto lateral a tener presente:** `"bump-after-update": true` en `composer.json` reescribe los constraints a lo instalado (`"*"` → `">=x"`, `^2.18` → `^2.19.1`), así que se pierden techos; uno explícito como `^0.4` sí sobrevive. Quedan otros `"*"` sin techo. Los forks tienen `"*"` en mercure-bundle: su próximo `composer update` rompe igual.
 
 **Pendiente del ciclo (no hecho):** Node 20→24 (EOL), RabbitMQ 3→4 (EOL), notas en `UPGRADING.md`, `release.sh`, push y sync a forks. Fuera de alcance a propósito: pg15→18, php8.3→8.5, 6 majors de frontend, actions.
+
+## [PASO 3.1] feat(deps): el aviso por advisory — audit de CVEs fuera del ciclo + Trivy para imágenes base
+**Hash:** `14aaeaa`
+**Rama:** `feat/advisory-audit`
+**Fecha:** 2026-10-22
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/oliva/deps.sh` | modificado | Subcomando `audit` (solo CVEs: `composer audit` + `yarn audit` + Trivy sobre las imágenes base) y `scan-images` (solo Trivy, lo usa el CI). `due` ahora reporta también la frescura del audit (umbral `OLIVA_AUDIT_DUE_DAYS`, default 7). `report` incluye `report_trivy`. Refactor: extracción de imágenes base a `base_images()` (compartido por `report_images` y `scan_images`). Constantes `AUDIT_DUE_DAYS`, `AUDIT_STATE`, `TRIVY_VERSION` (0.72.0). |
+| `.github/workflows/ci.yml` | modificado | Job `image-scan` (report-only, `|| true`) que corre `deps.sh scan-images`. Opt-out por fork: `OLIVA_CI_SKIP=trivy`. Usa el mismo Trivy pinneado vía `docker run`, no la `trivy-action`. |
+| `.gitignore` | modificado | `.oliva/` (estado local del audit, por-repo). |
+| `.trivyignore` | nuevo | Plantilla para CVEs aceptados/infixables de las imágenes base. |
+| `CLAUDE.md` | modificado | "Chequeos de sanidad": `deps.sh due` reporta las dos cadencias; mención de `deps.sh audit`. |
+| `docs/oliva/actualizaciones.md` | modificado | Sección nueva "El aviso por advisory": modelo de capas, una-fuente-por-capa, detalles operativos de Trivy. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección 1.3.0 (acción requerida + qué cambió). |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**El gap que cierra:** el ciclo de deps (`report`/`update`) corre cada ~45 días por **frescura**; un CVE crítico no espera. Y había una capa sin cubrir por ninguna fuente: el SO y los binarios **dentro** de las imágenes base (OpenSSL del postgres, el binario de Caddy en FrankenPHP). `composer`/`yarn audit` solo ven los *paquetes* de la app.
+
+**Decisión de diseño — una fuente por capa, no varias apiladas.** Las bases de advisories de paquetes se alimentan entre sí (GHSA ⟵ NVD + FriendsOfPHP; Packagist ⟵ FriendsOfPHP + GHSA; OSV ⟵ GHSA), así que apilar GHSA + OSV + Packagist sobre el mismo `composer.lock` es redundancia, no robustez (mismos hallazgos, distinto ID). La robustez viene de cubrir capas distintas: PHP (`composer audit`), JS (`yarn audit`), imágenes (**Trivy**). Se descartó osv-scanner (no hay gap en la capa de paquetes) y la API de NVD/OSV por-request (online, rate-limited; Trivy con DB local encaja mejor con el flujo de sesión/CI).
+
+**Mecanismo del aviso:** `deps.sh audit` (a demanda, solo CVEs) + gate barato y offline en `deps.sh due` (lee la fecha de `.oliva/audit-state`, umbral 7 días). Fiel a "el recordatorio vive en el flujo": el chequeo de inicio de sesión de siempre ahora surfacea el audit sin red.
+
+**Trivy:** corre como contenedor pinneado (`aquasec/trivy:0.72.0` — nada que instalar en el host) sobre el **ref base** fijado (no la imagen prod buildeada: ahí viven casi todos los CVEs de imagen y no hace falta buildear), filtra HIGH/CRITICAL **con fix** (`--ignore-unfixed`) y lee `.trivyignore`. Pin ≥ 0.71.1 obligatorio: la v0.69.4 estuvo comprometida (incidente de supply-chain 2026-03, que también afectó tags de `trivy-action` → por eso en CI se usa `docker run` con el pin, no la action). En CI el job es report-only a propósito: un CVE de imagen base puede ser infixable hasta que el upstream rebuildee; no se quiere `main` en rojo perpetuo.
+
+**Dos bugs propios que destapó la corrida real** (no previstos en el plan), ambos de interacción con `set -e`: (1) `[[ cond ]] && rc=1` abortaba el loop en la 1ª imagen sin findings (short-circuit → lista en falso → `set -e`); (2) el pipeline `trivy ... | sed` con `--exit-code 1` + `pipefail` abortaba en la 1ª imagen *con* findings. Por eso la 1ª corrida solo escaneó `caddy`. Fix: capturar salida+estado con `out="$(...)" || status=$?` y un `if` explícito, nunca el idiom `&&`. Verificado: scan de las 5 imágenes completo, exit 1 con findings (caddy 26+68, node 3, pgvector 29+26, rabbitmq 4; FrankenPHP 0 — ya parchado en 1.1.5).
