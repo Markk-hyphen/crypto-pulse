@@ -2,21 +2,34 @@
 #
 # Mantenimiento de dependencias de una app Oliva (sirve igual en Oliva y en cada fork).
 #
-#   scripts/oliva/deps.sh due      # offline, 1 segundo: ¿toca ciclo? (chequeo de inicio de sesión)
-#   scripts/oliva/deps.sh report   # qué hay viejo: imágenes base, EOL, composer, yarn, actions, CVEs
-#   scripts/oliva/deps.sh update   # rama chore/deps-<fecha>: bump DENTRO de los rangos + verify + commit
+#   scripts/oliva/deps.sh due         # offline, 1 segundo: ¿toca ciclo? ¿toca audit? (chequeo de inicio de sesión)
+#   scripts/oliva/deps.sh report      # qué hay viejo: imágenes base, EOL, composer, yarn, actions, CVEs
+#   scripts/oliva/deps.sh update      # rama chore/deps-<fecha>: bump DENTRO de los rangos + verify + commit
+#   scripts/oliva/deps.sh audit       # solo CVEs, a demanda (fuera del ciclo): composer + yarn + imágenes (Trivy)
+#   scripts/oliva/deps.sh scan-images # solo las imágenes base con Trivy (lo usa el CI)
 #
 # Qué automatiza y qué no: `update` sube patch/minor dentro de las restricciones de
 # composer.json/package.json — lo que casi nunca rompe y siempre conviene. Los saltos
 # de imagen base (FrankenPHP, node, postgres, rabbitmq) y los majors de paquetes NO se
 # automatizan: `report` los lista y se hacen a mano, uno por commit, con verify.sh.
 # Motivo: el único update que rompió algo en serio fue un salto de FrankenPHP (Mercure).
+#
+# Dos cadencias distintas: el CICLO de deps (`due`/`report`/`update`, ~45 días) es por
+# FRESCURA; el AUDIT (`audit`, ~7 días) es por SEGURIDAD — un CVE no espera al ciclo.
+# `audit` cubre la capa que composer/yarn audit no ven: el SO y los binarios DENTRO de
+# las imágenes base (Trivy). Fuentes: una por capa, no apiladas (ver docs/oliva/actualizaciones.md).
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/../lib/docker-prune.sh"
 require_repo_root
 
 DUE_DAYS="${OLIVA_DEPS_DUE_DAYS:-45}"
+AUDIT_DUE_DAYS="${OLIVA_AUDIT_DUE_DAYS:-7}"   # CVEs se mueven más rápido que el ciclo de frescura
+AUDIT_STATE=".oliva/audit-state"               # fecha del último audit (por-repo, gitignored)
+# Trivy pinneado (aquasec/trivy solo publica tags exactos, sin major.minor). Se corre como
+# contenedor: nada que instalar en el host. Bumpearlo en el ciclo como cualquier otra imagen.
+# OJO: la v0.69.4 estuvo comprometida (incidente de supply-chain 2026-03) → nunca bajar de 0.71.1.
+TRIVY_VERSION="${OLIVA_TRIVY_VERSION:-0.72.0}"
 
 # ── due ────────────────────────────────────────────────────────────────────────
 cmd_due() {
@@ -24,13 +37,31 @@ cmd_due() {
   last="$(git log -1 --format=%cs --grep='^chore(deps)' 2>/dev/null || true)"
   if [[ -z "$last" ]]; then
     echo "deps: nunca se corrió un ciclo (no hay commits chore(deps)). Correr: scripts/oliva/deps.sh report"
+  else
+    days=$(( ( $(date +%s) - $(date -d "$last" +%s) ) / 86400 ))
+    if (( days >= DUE_DAYS )); then
+      echo "deps: último ciclo hace ${days} días (${last}) → TOCA. Correr: scripts/oliva/deps.sh report"
+    else
+      echo "deps: último ciclo hace ${days} días (${last}), OK (umbral ${DUE_DAYS})."
+    fi
+  fi
+  audit_due_line
+}
+
+# Frescura del audit de seguridad (independiente del ciclo de deps). Offline: solo lee
+# la fecha que `cmd_audit` dejó en AUDIT_STATE. Es el "aviso por advisory" en el flujo.
+audit_due_line() {
+  local last days
+  if [[ ! -f "$AUDIT_STATE" ]]; then
+    echo "audit: nunca se corrió. Correr: scripts/oliva/deps.sh audit"
     return 0
   fi
+  last="$(cat "$AUDIT_STATE")"
   days=$(( ( $(date +%s) - $(date -d "$last" +%s) ) / 86400 ))
-  if (( days >= DUE_DAYS )); then
-    echo "deps: último ciclo hace ${days} días (${last}) → TOCA. Correr: scripts/oliva/deps.sh report"
+  if (( days >= AUDIT_DUE_DAYS )); then
+    echo "audit: último hace ${days} días (${last}) → TOCA (CVEs no esperan). Correr: scripts/oliva/deps.sh audit"
   else
-    echo "deps: último ciclo hace ${days} días (${last}), OK (umbral ${DUE_DAYS})."
+    echo "audit: último hace ${days} días (${last}), OK (umbral ${AUDIT_DUE_DAYS})."
   fi
 }
 
@@ -69,20 +100,26 @@ eol_line() {  # eol_line <producto endoflife.date> <ciclo>
   fi
 }
 
+# Imágenes base EXTERNAS (no las stages internas del Dockerfile), con los tags
+# resueltos a algo concreto (pg${POSTGRES_VERSION:-15} → pg15). Lista compartida por
+# el reporte de novedades (report_images) y el scan de CVEs (scan_images).
+base_images() {
+  { awk '/^FROM / && $2 !~ /^(frankenphp_|base|builder)/ {print $2}' backend/Dockerfile frontend/Dockerfile
+    grep -hoE 'image: *[a-z0-9./-]+:[A-Za-z0-9.${}_:-]+' docker-compose*.yml \
+      | sed -E 's/image: *//' | grep -v 'COMPOSE_PROJECT_NAME'; } \
+    | sed -E 's/\$\{POSTGRES_VERSION:-([0-9]+)\}/\1/' | sort -u
+}
+
 report_images() {
   echo "## Imágenes base (actual → más nueva con la misma forma de tag)"
-  local images img newest
-  images="$( { awk '/^FROM / && $2 !~ /^(frankenphp_|base|builder)/ {print $2}' backend/Dockerfile frontend/Dockerfile
-               grep -hoE 'image: *[a-z0-9./-]+:[A-Za-z0-9.${}_:-]+' docker-compose*.yml \
-                 | sed -E 's/image: *//' | grep -v 'COMPOSE_PROJECT_NAME'; } \
-             | sed -E 's/\$\{POSTGRES_VERSION:-([0-9]+)\}/\1/' | sort -u)"
+  local img newest
   while read -r img; do
     [[ -z "$img" ]] && continue
     newest="$(hub_newer_tags "$img" || true)"
     if [[ -z "$newest" ]]; then echo "   $img → (sin datos)"
     elif [[ "$newest" == "${img##*:}" ]]; then echo "   ✓  $img (al día)"
     else echo "   ↑  $img → ${newest}"; fi
-  done <<<"$images"
+  done < <(base_images)
   local sc_cur sc_new
   sc_cur="$(awk -F= '/SUPERCRONIC_VERSION=/ {print $2; exit}' backend/Dockerfile)"
   sc_new="$(curl -fsS https://api.github.com/repos/aptible/supercronic/releases/latest 2>/dev/null | jq -r .tag_name || true)"
@@ -141,6 +178,46 @@ report_actions() {
     done
 }
 
+# Trivy sobre cada imagen base fijada. HIGH/CRITICAL con fix disponible (--ignore-unfixed):
+# lo accionable, sin ruido de CVEs que no se pueden resolver hasta que el upstream rebuildee.
+# Esta es la capa que composer/yarn audit NO ven: SO + binarios DENTRO de la imagen (OpenSSL
+# del postgres, el binario de Caddy en FrankenPHP, …). Escanea el REF BASE, no la imagen prod
+# buildeada: ahí viven casi todos los CVEs de imagen y no hace falta buildear nada. Trivy corre
+# como contenedor pinneado; su DB y las capas escaneadas se cachean en un volumen de tooling
+# (mismo criterio que oliva-tools/composer de lib.sh). Devuelve != 0 si alguna imagen tiene findings.
+scan_images() {
+  command -v docker >/dev/null 2>&1 || { warn "docker no disponible: scan de imágenes salteado"; return 0; }
+  # .trivyignore (CVEs aceptados/infixables) vive en el repo pero Trivy corre en un
+  # contenedor: hay que montarlo y apuntarlo con --ignorefile, no lo toma del host solo.
+  local img rc=0 ignore_mount=() ignore_flag=()
+  if [[ -f .trivyignore ]]; then
+    ignore_mount=(-v "$PWD/.trivyignore:/tmp/.trivyignore:ro")
+    ignore_flag=(--ignorefile /tmp/.trivyignore)
+  fi
+  local out status
+  while read -r img; do
+    [[ -z "$img" ]] && continue
+    echo "   • $img"
+    # Capturamos salida + estado SIN pipe directo: con set -e + pipefail, `trivy ... | sed`
+    # saldría != 0 en la 1ª imagen con findings (--exit-code 1) y abortaría el loop. El
+    # `|| status=$?` neutraliza eso y deja seguir con las demás imágenes.
+    status=0
+    out="$(docker run --rm -v oliva-tools-trivy-cache:/root/.cache/ "${ignore_mount[@]}" \
+      "aquasec/trivy:${TRIVY_VERSION}" image \
+      --severity HIGH,CRITICAL --ignore-unfixed --no-progress --quiet \
+      "${ignore_flag[@]}" --exit-code 1 "$img" 2>&1)" || status=$?
+    printf '%s\n' "$out" | sed 's/^/     /'
+    if (( status != 0 )); then rc=1; fi
+  done < <(base_images)
+  return $rc
+}
+
+report_trivy() {
+  echo "## Imágenes base — CVEs (Trivy ${TRIVY_VERSION}, HIGH/CRITICAL con fix)"
+  scan_images || true   # en el reporte es informativo; el exit code lo maneja `audit`
+  echo "   (pin de Trivy: bumpearlo en el ciclo como cualquier imagen base)"
+}
+
 cmd_report() {
   echo "# Reporte de dependencias — $(basename "$PWD") (Oliva $(local_oliva_version)) — $(date +%F)"
   echo
@@ -148,7 +225,43 @@ cmd_report() {
   report_images; echo
   report_composer; echo
   report_yarn; echo
-  report_actions
+  report_actions; echo
+  report_trivy
+}
+
+# ── audit ────────────────────────────────────────────────────────────────────────
+# Solo CVEs, a demanda, fuera del ciclo de 45 días. Una fuente por capa: composer audit
+# (paquetes PHP), yarn audit (paquetes JS), Trivy (SO + binarios de las imágenes base).
+# Siempre deja la fecha en AUDIT_STATE (lo que mira `due`): el estado es "cuándo corriste
+# audit", no "quedó limpio" — los CVEs encontrados ya los viste en la salida.
+cmd_audit() {
+  local rc=0
+  echo "# Audit de seguridad — $(basename "$PWD") (Oliva $(local_oliva_version)) — $(date +%F)"
+  echo
+  echo "## Composer (CVEs)"
+  run_composer audit --locked || { rc=1; warn "composer audit reporta CVEs"; }
+  echo
+  echo "## Frontend (yarn audit)"
+  run_yarn audit || { rc=1; warn "yarn audit reporta CVEs"; }
+  echo
+  echo "## Imágenes base (Trivy ${TRIVY_VERSION}, HIGH/CRITICAL con fix)"
+  scan_images || { rc=1; warn "Trivy reporta CVEs en imágenes base"; }
+
+  mkdir -p "$(dirname "$AUDIT_STATE")"
+  date +%F > "$AUDIT_STATE"
+  echo
+  if (( rc == 0 )); then
+    info "audit limpio. Fecha guardada en $AUDIT_STATE."
+  else
+    warn "audit encontró CVEs (ver arriba). Fecha guardada en $AUDIT_STATE."
+  fi
+  return $rc
+}
+
+# Solo las imágenes base (lo usa el CI). No toca paquetes ni el state file.
+cmd_scan_images() {
+  echo "# Scan de imágenes base — Trivy ${TRIVY_VERSION} (HIGH/CRITICAL con fix)"
+  scan_images
 }
 
 # ── update ─────────────────────────────────────────────────────────────────────
@@ -201,8 +314,10 @@ EOF
 }
 
 case "${1:-}" in
-  due)    cmd_due ;;
-  report) cmd_report ;;
-  update) cmd_update ;;
-  *) sed -n '3,15p' "$0"; exit 1 ;;
+  due)         cmd_due ;;
+  report)      cmd_report ;;
+  update)      cmd_update ;;
+  audit)       cmd_audit ;;
+  scan-images) cmd_scan_images ;;
+  *) sed -n '3,18p' "$0"; exit 1 ;;
 esac
