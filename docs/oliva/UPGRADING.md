@@ -5,6 +5,47 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.2.0 — 2026-10-22
+
+> Bump de dos imágenes base que llegaron a EOL: Node y RabbitMQ. Node es un swap
+> limpio (rebuild y listo). RabbitMQ **solo** necesita acción manual en un fork que
+> ya corra un nodo con datos persistidos de un 3.x — ver abajo.
+
+**Acción requerida en el fork**
+
+1. **Sync + rebuild del frontend** (Node 20 → 24). Es un swap de imagen base, sin acción
+   manual: `scripts/oliva/sync.sh` baja el `frontend/Dockerfile` nuevo y el rebuild usa
+   node 24. Verificar con `scripts/oliva/verify.sh` (su `prod-build` corre el `vite build`
+   sobre node 24).
+2. **RabbitMQ 3 → 4 — depende de si el fork tiene un nodo con datos:**
+   - **El fork NUNCA activó el profile `queues`** (no hay nodo ni volumen `*_rabbitmq_data`):
+     **ninguna acción**. Un nodo 4.0 fresco arranca con todos los feature flags enabled.
+   - **El fork SÍ corre RabbitMQ con un volumen poblado de un 3.x:** ANTES de swappear la
+     imagen (es decir, con el nodo **todavía en 3.13** corriendo), habilitar todos los
+     feature flags estables:
+     ```bash
+     docker compose exec rabbitmq rabbitmqctl enable_feature_flag all
+     ```
+     Recién después sync + recrear el container. Si no, el nodo 4.0 **se niega a bootear**
+     con un *required feature flag* sin habilitar, y no deja rastro obvio. El tag viejo
+     `3-management` ya resolvía a 3.13.7, que es la única versión desde la que 4.0 soporta
+     upgrade directo — no hay salto intermedio que dar.
+   - **Si el fork usaba classic mirrored queues (HA policies):** 4.0 las **eliminó**. Migrar
+     a quorum queues antes de subir. Los transports de ejemplo de Oliva
+     (`ingest`/`enrich`/`failed`) son classic queues normales, no mirrored → no les afecta.
+
+**Qué cambió**
+
+- `frontend/Dockerfile`: imagen base `node:20-slim` → **`node:24-slim`**. Node 20 quedó EOL
+  el 2026-04-30. Se eligió 24 ("Krypton", Active LTS) y no 26, que salió este mes como
+  *Current* y todavía no es LTS. Verificado: runtime `v24.22.1`, `verify.sh` 8/8 (el
+  `vite build` de prod corre sobre node 24 sin cambios).
+- `docker-compose.yml`: `rabbitmq:3-management` → **`rabbitmq:4-management`** (4.4.0). El 3.x
+  está EOL desde 2024-09. Verificado levantando el profile `queues`: nodo 4.4.0 healthy
+  (`rabbitmq-diagnostics ping`) y el worker de Symfony Messenger conecta por AMQP y declara
+  las colas `ingest`/`enrich` sin errores. La extensión `php-amqp` habla AMQP 0-9-1, que no
+  cambió entre 3 y 4, así que no hay bump de dependencias PHP.
+
 ## 1.1.5 — 2026-10-22
 
 > ⚠️ **Release de seguridad. Syncear y rebuildear cuanto antes.** Parchea dos RCE sin
