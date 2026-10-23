@@ -2,7 +2,7 @@
 
 Qué garantías ofrece el framework antes de que algo llegue a producción, y con qué
 herramienta se obtiene cada una. Documento para humanos; los runbooks paso a paso de
-deploy viven en `CLAUDE.md` (que es la guía operativa para agentes).
+deploy viven en `AGENTS.md` (que es la guía operativa para agentes).
 
 Hay **tres capas de verificación**, de la más rápida a la más completa, más una cuarta
 que es responsabilidad de cada app:

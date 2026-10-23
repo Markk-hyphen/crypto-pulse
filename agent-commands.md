@@ -1,6 +1,12 @@
-# Claude Commands
+# Agent Commands
 
 Comandos que el usuario puede escribir en el chat para activar protocolos específicos.
+
+> **Prefijo:** los comandos de abajo usan el prefijo `claude` (ej. `claude reiniciar`,
+> `claude oliva deps`) porque es la herramienta que usa Marcos, pero es solo una
+> frase-gatillo documentada — cualquier agente la honra igual. Un fork que use otra
+> herramienta puede cambiar el prefijo en esta única línea, sin tocar el resto del
+> archivo.
 
 ---
 

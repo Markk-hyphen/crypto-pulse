@@ -49,13 +49,13 @@ frankenphp_base
 - [x] `AppFixtures` con grupos `staging` / `dev` y comentarios para forks
 - [x] `AppStory` como punto de entrada de escenarios Foundry
 - [x] Target `frankenphp_staging` en el Dockerfile
-- [x] Paso opt-in en el runbook de deploy del `CLAUDE.md`
+- [x] Paso opt-in en el runbook de deploy del `AGENTS.md`
 - [x] Comando documentado en `.env.example`
 - [x] Sección Foundry en `docs/concepts.md`
 - [x] `docker-compose.staging.yml` — overlay mínimo (image + target + env_file)
 - [x] `.env.staging.example` — env template para la DB desechable de staging
 - [x] `scripts/deploy-staging.sh` — deploy completo de staging en una llamada
-- [x] Runbook formal de staging en `CLAUDE.md`
+- [x] Runbook formal de staging en `AGENTS.md`
 - [x] Modelo de infra de staging documentado (Epic E, deuda crítica resuelta)
 
 ## Deuda crítica — el modelo de infra de staging (RESUELTA 2026-06-29)
@@ -84,7 +84,7 @@ producción**.
   inocua — la DB de staging es desechable.
 - `scripts/deploy-staging.sh`: atajo que ejecuta build + up + migraciones +
   `fixtures:load` en una sola llamada.
-- Runbook formal en `CLAUDE.md` (sección "Runbook de staging").
+- Runbook formal en `AGENTS.md` (sección "Runbook de staging").
 
 El paso 11 del runbook de shared-infra apunta ahora al runbook de staging.
 

@@ -83,6 +83,37 @@ maintained installable module (which would need manual sync). It's a flag of the
 installer from item 3: `--shared-infra`. The installer is what unifies it into
 Oliva coherently, instead of a module kept in step by hand.
 
+## 5. Agent layer: one entry point, vendor-neutral spec
+
+Two changes to how Oliva presents itself to whoever operates it — human or agent.
+
+**An executable CLI (`./oliva`).** Today the interface *is* script paths:
+`scripts/oliva/deps.sh due`, `scripts/deploy.sh`. The cost isn't typing, it's
+structural. The agent doc is a SHARED file, so every doc reference to a path
+means that moving, splitting or renaming a script becomes a diff in a file every
+fork also edits — conflict surface in all of them. A stable `oliva <verb>` is an
+indirection layer: the internals can move without touching a line of the shared
+docs. Same reasoning that already justifies `owned-paths.txt`.
+
+**`AGENTS.md` instead of `CLAUDE.md`.** The content is vendor-agnostic —
+runbooks, conventions, protocols — and only the filename names a vendor.
+`AGENTS.md` is the open format for exactly this, stewarded by the Agentic AI
+Foundation, and read natively by Codex, Cursor, Gemini CLI, Copilot, Aider, Zed
+and others, Claude Code included. Whoever forks Oliva should be able to bring
+their own tool without renaming anything.
+
+**Not blocked on item 1.** Unlike items 2–4, this needs no friction signal: it
+changes the entry point and the naming, not what Oliva ships. It is also the
+socket item 3 plugs into — an installer is `oliva new --queues --shared-infra`,
+which needs the dispatcher to exist first.
+
+**Deliberately out of scope:** flags on `oliva deploy`. Those *are* item 3, and
+they wait on item 1 like everything else. The operational commands ship as thin
+pass-throughs with no new flags.
+
+Plan and decisions: [`docs/roadmap/epics/E-capa-agentica.md`](roadmap/epics/E-capa-agentica.md)
+(target v1.4.0).
+
 ---
 
 ## Sequencing
@@ -92,8 +123,13 @@ The items are dependency-ordered, not priority-ordered:
 ```
 1. Friction log  ──►  3. Scaffolding/flags  ──►  2. Full optionality
    (produces the        (the mechanism)           (the goal)
-    signal)                   │
-                              └──►  4. shared-infra becomes a flag
+    signal)                ▲   │
+                           │   └──►  4. shared-infra becomes a flag
+                           │
+5. Agent layer  ───────────┘
+   (CLI + AGENTS.md)
 ```
 
-Item 1 is cheap and can start any time. Items 2–4 wait on it.
+Item 1 is cheap and can start any time. Items 2–4 wait on it. Item 5 doesn't —
+it's independent of the friction signal, and it builds the entry point that
+item 3 later extends.

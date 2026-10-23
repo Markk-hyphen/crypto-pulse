@@ -1,7 +1,8 @@
 # Conceptos técnicos
 
 Explicaciones teóricas de tecnologías y conceptos usados en el proyecto.
-Cada sección se agrega a medida que el tema aparece en el desarrollo.
+Este archivo es acumulativo: nunca se borra contenido, solo se agrega — ver el
+protocolo de explicaciones conceptuales en `AGENTS.md`.
 
 ---
 
@@ -487,7 +488,7 @@ ni permiso para escribirle. Técnicamente no podría forzar nada aunque quisiera
 4. Imprime las secciones de `UPGRADING.md` **más nuevas que su versión local**.
 
 O sea: el fork se entera **cuando alguien pregunta**. Lo que hace que la pregunta se haga
-sola no es tecnología, es un hábito escrito en `CLAUDE.md`: `sync.sh check` está en los
+sola no es tecnología, es un hábito escrito en `AGENTS.md`: `sync.sh check` está en los
 chequeos de inicio de sesión. Eso es todo el "listener" que hay — un humano (o su agente)
 corriendo un comando al abrir la sesión.
 

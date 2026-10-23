@@ -138,7 +138,7 @@ cmd_start() {
     echo
     echo "── Drift: archivos de Oliva que este fork tiene distintos (ver scripts/oliva/owned-paths.txt) ──"
     printf '   %s\n' "${drift[@]}"
-    echo "   Si es intencional, documentalo en el CLAUDE.md del fork; si no, alinealo con Oliva."
+    echo "   Si es intencional, documentalo en el AGENTS.md del fork; si no, alinealo con Oliva."
   fi
 
   local changed_manifests
