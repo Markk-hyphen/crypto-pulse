@@ -17,7 +17,7 @@ services:
       timeout: 5s
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4-management
     profiles: ["queues"]
     restart: unless-stopped
     environment:

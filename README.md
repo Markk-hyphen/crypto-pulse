@@ -32,7 +32,10 @@ Oliva is the base every new project starts from: a backend, a frontend, a databa
 | API testing | [Bruno](https://www.usebruno.com/) collection in `api/` (per-app, not shipped by Oliva — the requests are 100% domain-specific) |
 | Infrastructure | Docker Compose · bridge network · multi-stage builds (dev / prod / staging) |
 
-See `docs/concepts.md` for explanations of the less obvious pieces (pgvector, AMQP, Mercure, etc.) and `docs/examples/` for reference skeletons of a queue producer/consumer and a Mercure publisher.
+See [`docs/concepts.md`](docs/concepts.md) for explanations of the less obvious pieces
+(pgvector, AMQP, Mercure, the fork sync model), [`docs/qa-y-staging.md`](docs/qa-y-staging.md)
+for what QA the framework offers and how the staging stack works, and `docs/examples/` for
+reference skeletons of a queue producer/consumer and a Mercure publisher.
 
 ---
 
@@ -40,7 +43,10 @@ See `docs/concepts.md` for explanations of the less obvious pieces (pgvector, AM
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) with Compose v2.10+
+- [Docker](https://docs.docker.com/get-docker/) with Compose **v2.24+**
+
+  v2.10 is enough for the core dev stack, but the shared-infra and staging overlays use
+  the `!override` merge tag, which needs 2.24. Check with `docker compose version`.
 
 ### Development
 
@@ -72,7 +78,10 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-The frontend is served by Caddy on **http://localhost**. The backend, database, RabbitMQ and scheduler are internal — never directly reachable from outside.
+The frontend is served by Caddy on **http://localhost**. The backend and database are
+internal — never directly reachable from outside. `rabbitmq` and `scheduler` are opt-in
+behind profiles (see [Optional services](#optional-services-compose-profiles)); when
+enabled they are internal too.
 
 > **Known gap:** there's no production `worker` service yet. If your app uses Messenger queues for real, add one to `docker-compose.prod.yml` (image `${COMPOSE_PROJECT_NAME}-backend:prod`, command `messenger:consume`, no exposed ports) before going live — `scheduler` is already covered in prod.
 
@@ -82,23 +91,40 @@ The frontend is served by Caddy on **http://localhost**. The backend, database, 
 
 ```
 oliva/
+├── OLIVA_VERSION           # framework version this checkout is on (see Staying up to date)
 ├── backend/                # Symfony 7.4 app (FrankenPHP + Caddy)
 │   ├── src/
+│   │   └── DataFixtures/   # Foundry fixtures, grouped by env (staging / dev)
 │   ├── config/
 │   ├── migrations/
+│   ├── php-extensions.txt  # the FORK's extra PHP extensions — Oliva ships it empty
 │   ├── scheduler/          # crontab consumed by supercronic
 │   └── frankenphp/         # Caddy and PHP runtime config
-├── frontend/                # Vite app
+├── frontend/               # Vite app
 │   ├── src/
 │   │   └── js/live.js      # Mercure live-update demo
 │   └── Caddyfile           # Production static file server config
 ├── docs/
 │   ├── concepts.md         # cumulative glossary (pgvector, AMQP, Mercure...)
+│   ├── qa-y-staging.md     # what QA the framework offers + the staging stack
+│   ├── oliva/              # framework docs that ship down to every fork
+│   │   ├── actualizaciones.md   # the update/sync system, in full
+│   │   └── UPGRADING.md         # per-version notes a fork must act on
 │   └── examples/           # *.php.example reference skeletons (not live code)
+├── scripts/
+│   ├── deploy.sh           # redeploy (pull + build + up), prod
+│   ├── deploy-staging.sh   # redeploy staging (+ migrations + fixtures)
+│   ├── down.sh / down-staging.sh
+│   ├── lib/                # project-name collision guard, docker prune
+│   └── oliva/              # framework maintenance: deps, sync, verify, release
 ├── docker-compose.yml
-├── docker-compose.override.yml   # Dev overrides (auto-applied): worker, exposed ports
-├── docker-compose.prod.yml       # Production overrides
+├── docker-compose.override.yml       # Dev overrides (auto-applied): worker, exposed ports
+├── docker-compose.prod.yml           # Production overrides
+├── docker-compose.staging.yml        # Staging overlay (see docs/qa-y-staging.md)
+├── docker-compose.shared-infra.yml   # Opt-in: shared Postgres/RabbitMQ/proxy on one host
+├── secrets/                # JWT keys, generated at first boot (gitignored)
 ├── .env.example
+├── .env.staging.example
 ├── .env.backend
 └── .env.frontend
 ```
@@ -116,6 +142,7 @@ only; otherwise a comma-separated list of profiles to enable.
 |---|---|---|
 | _(none)_ | `backend`, `frontend`, `database` | `DATABASE_URL`, `APP_SECRET`, JWT + Mercure keys |
 | `queues` | `+ rabbitmq`, `+ worker` (dev) | `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_DSN` |
+| `cron` | `+ scheduler` | none — but `backend/scheduler/crontab` must be filled, or it runs nothing |
 
 ```bash
 # Core only (default):
@@ -123,6 +150,9 @@ COMPOSE_PROFILES=        docker compose up -d
 
 # With queues:
 COMPOSE_PROFILES=queues  docker compose up -d
+
+# With queues and scheduled tasks:
+COMPOSE_PROFILES=queues,cron  docker compose up -d
 ```
 
 > **Rule:** if you enable a profile, configure its variables too. A service
@@ -135,10 +165,13 @@ COMPOSE_PROFILES=queues  docker compose up -d
 > won't stop it for you — run `docker compose stop <service>` (or `down`)
 > explicitly.
 
+> **Careful — a profiled service you forget to enable fails silently.** If your app
+> has cron jobs but you never set `COMPOSE_PROFILES=cron`, `scheduler` simply never
+> comes up: no error, no warning, and your jobs never run. Same for `queues` and
+> your Messenger consumers.
+
 ### Always-on, not behind a profile
 
-- **`scheduler`** — `supercronic` against `backend/scheduler/crontab`. Cheap; if
-  your app has no cron jobs, just leave `crontab` empty (or remove the block).
 - **`database`** — image `pgvector/pgvector:pg${POSTGRES_VERSION}`, a normal
   Postgres with the `vector` extension compiled in. Costs nothing if you don't
   use `vector` columns.
@@ -163,6 +196,73 @@ When a future optional service appears (e.g. a search engine, a cache):
 > This profile mechanism is the v1 bridge. The destination (v2.0) is
 > install-time flags / scaffolding that builds each fork with only the services
 > it asked for, instead of inheriting everything and switching it off here.
+
+---
+
+## Staying up to date (forks)
+
+Oliva is versioned (`OLIVA_VERSION`, tags `vX.Y.Z`) and apps built with it live in
+**separate repos** — they are not Compose projects inside this one. The link back is a git
+remote called `oliva-upstream`, configured **in the fork**.
+
+The important thing to understand up front: **this is pull, not push.** Oliva does not
+know its forks exist — there is no registry, no webhook, no listener. Git has no
+push-to-downstream, and Oliva holds no credentials to write to anyone. Every sync is
+started by the fork. (The mechanism is explained in full in
+[`docs/concepts.md`](docs/concepts.md#el-sync-oliva--forks-por-qué-es-pull-no-push).)
+
+### In a fork: stay current
+
+```bash
+scripts/oliva/sync.sh check   # how far behind am I? + the upgrade notes I haven't applied
+scripts/oliva/sync.sh start   # branch + merge Oliva, with conflicts classified
+scripts/oliva/sync.sh locks   # regenerate composer.lock / yarn.lock
+scripts/oliva/sync.sh verify  # = scripts/oliva/verify.sh
+```
+
+`check` is cheap and offline-friendly — run it when you open a session, because **nothing
+will tell you otherwise**: the upgrade notes travel in the same fetch as the code, so
+there is no advance warning.
+
+### In Oliva: ship a version
+
+```bash
+scripts/oliva/deps.sh due      # is it time for a maintenance cycle?
+scripts/oliva/deps.sh report   # EOL, images, composer, yarn, actions, CVEs
+scripts/oliva/deps.sh update   # bump within ranges + verify + commit
+scripts/oliva/release.sh X.Y.Z # tag a release
+```
+
+### File ownership
+
+`scripts/oliva/owned-paths.txt` lists the files that belong to Oliva (`backend/Dockerfile`,
+`docker-compose*.yml`, `scripts/`, the CI workflow, …). **A fork does not edit them** — if
+it needs something different, that something gets added to Oliva as an option and ships
+down to everyone. This is a convention, not a technical lock: git won't stop you, but
+every file you edit becomes a conflict on every future sync.
+
+The escape hatch for the most common case is `backend/php-extensions.txt` — see below.
+
+> **If you change something a fork must act on** (a rename, a new variable, a manual step),
+> write it into `docs/oliva/UPGRADING.md` in the same commit. That file is the *only*
+> channel Oliva has to its forks, and `release.sh` refuses to publish a version without
+> its section.
+
+The whole system is documented in [`docs/oliva/actualizaciones.md`](docs/oliva/actualizaciones.md).
+
+### Adding PHP extensions without touching Oliva's Dockerfile
+
+`backend/php-extensions.txt` is the fork's extension point. Oliva ships it empty and never
+changes it, so it never conflicts on a sync:
+
+```
+# one per line
+bcmath
+redis-6.2.0
+```
+
+Extensions bundled with PHP (`bcmath`, `gmp`, …) go without a version — the base image
+pins those. PECL extensions get an exact version.
 
 ---
 
@@ -207,7 +307,22 @@ The frontend proxies all `/api/*` requests to the backend over the internal Dock
 ## Health check and CI
 
 - `GET /health` → `{"status": "ok"}` (`backend/src/Controller/HealthController.php`).
-- `.github/workflows/ci.yml` builds the images, brings up the full stack, checks `/health` and `/.well-known/mercure`, runs migrations, validates the Doctrine schema, and runs PHPUnit. A separate job lints the backend `Dockerfile` with hadolint.
+- `.github/workflows/ci.yml` runs three jobs on every push and PR: **Tests** (build the
+  images, bring up the stack, check `/health` and `/.well-known/mercure`, run migrations,
+  validate the Doctrine schema, run PHPUnit), **Prod config guard** (`APP_ENV` really
+  resolves to `prod` in the production stack), and **Docker Lint** (hadolint).
+- `scripts/oliva/verify.sh` is the same smoke test, locally and in one command — run it
+  after a sync, after touching the `Dockerfile`, or before a release.
+- A fork can skip a step that legitimately doesn't apply to it: `OLIVA_VERIFY_SKIP` locally,
+  the `OLIVA_CI_SKIP` repo variable in CI.
+
+👉 **[`docs/qa-y-staging.md`](docs/qa-y-staging.md)** covers all of this in depth, plus the
+**staging stack** (prod's build with a throwaway database and seeded data) and what this
+framework deliberately does *not* verify.
+
+> Deploying several Oliva apps onto one host with a shared Postgres / RabbitMQ /
+> reverse-proxy is supported through the opt-in `docker-compose.shared-infra.yml` overlay.
+> The per-app runbook lives in `CLAUDE.md`.
 
 ---
 
