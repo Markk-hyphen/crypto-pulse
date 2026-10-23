@@ -67,7 +67,7 @@ y su stack de prod resuelve a `backend frontend scheduler` — sin worker, los m
 encolarían y nadie los consumiría. No es un cambio chico: el servicio tiene que existir en
 `prod.yml`, en `shared-infra.yml` (red `data_net`, `depends_on` anulado, DSN del RabbitMQ
 compartido) y en `staging.yml` (imagen y `APP_ENV` de staging), y va detrás del profile `queues`,
-así que depende de arreglar antes el `down` de los deploys (ver "profiles en los scripts de deploy").
+así que necesitaba que el `down` de los deploys bajara todos los profiles (resuelto en 1.4.2 con `--profile '*'`).
 
 Mercure (`/.well-known/mercure`) está siempre activo vía el hub de Caddy (`backend/frankenphp/Caddyfile`); la demo de canvas en vivo (`backend/public/live.php` + `frontend/src/js/live.js`) muestra que funciona out of the box.
 
@@ -86,11 +86,7 @@ Varias apps Oliva conviven en el mismo host (en dev, tu máquina; en prod, el VP
 
 **Guard de colisión en los scripts** (`scripts/lib/project-guard.sh`, sourceado por `deploy*.sh`/`down*.sh`): antes de `down`/`up`, aborta si el project ya tiene containers levantados desde **otro** directorio (label `com.docker.compose.project.working_dir`, que Compose pone solo), y rechaza nombres de app que terminen en `-staging` (sufijo reservado). Lo que el guard **no** cubre: `infra/scripts/provision-postgres.sh` se sigue tipeando a mano y puede driftear del project name. Convención: `<app>_db`/`<app>_user` con el mismo `<app>` que el `-p`.
 
-### Deuda conocida: profiles en los scripts de deploy
-
-- El `down` de `deploy.sh`/`deploy-staging.sh` corre con `COMPOSE_PROFILES=cron`, que
-  **reemplaza** los profiles del `.env`: un servicio de otro profile (`queues`) queda fuera del
-  `down` y sigue corriendo viejo. Candidato: `--profile '*'` en el `down`.
+**Profiles en el `down` de los scripts:** `deploy*.sh`/`down*.sh` bajan con `--profile '*'`. Un `down` sin profile activo deja corriendo, sin error, a los servicios con `profiles:` que un overlay redefine (`scheduler`/`rabbitmq` en `prod.yml`): el stack viejo sobrevive al deploy. El `COMPOSE_PROFILES=cron` de antes reemplazaba los profiles del `.env` y dejaba afuera a `queues`. `'*'` también mete en scope a `database`/`rabbitmq` desactivados en shared-infra; no tienen containers en ese project, así que el `down` no hace nada con ellos.
 
 ### Deuda conocida: constraints sin techo + `bump-after-update`
 

@@ -38,7 +38,8 @@ if [[ "${SKIP_PULL:-0}" != "1" ]]; then
 fi
 
 echo ">> down"
-COMPOSE_PROFILES=cron "${COMPOSE[@]}" down --remove-orphans
+# --profile '*': mismo motivo que en deploy.sh (bajar todos los servicios con profile).
+"${COMPOSE[@]}" --profile '*' down --remove-orphans
 
 # build-everything (no enumerar servicios): enumerar es lo frágil — es lo que
 # en finanzas-ong dejó el frontend STALE (build solo listaba backend) y se

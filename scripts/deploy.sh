@@ -38,14 +38,17 @@ find . -maxdepth 1 -name "*.md" -delete
 rm -rf docs/
 
 # down borra los containers viejos antes de recrearlos.
-# COMPOSE_PROFILES=cron mete al scheduler en scope SOLO para el down: un servicio
-# detrás de un profile no se baja con `down` (profile inactivo) ni con
-# --remove-orphans (sigue definido en el YAML, no es huérfano real) → quedaría
-# corriendo stale. Activando el profile acá, el down sí lo apaga. El `up` de
-# abajo usa los profiles del `.env` del host (COMPOSE_PROFILES): el scheduler
-# vuelve a levantar solo si la app declaró `cron` ahí.
+# --profile '*' mete en scope del down a TODOS los servicios con profile (cron,
+# queues, y los que agregue el fork). Sin esto, un servicio detrás de un profile
+# inactivo no se baja — `down` lo saltea y --remove-orphans tampoco (sigue
+# definido en el YAML, no es huérfano) → queda corriendo stale. Antes se usaba
+# COMPOSE_PROFILES=cron, que REEMPLAZA los profiles del .env: dejaba afuera a
+# `queues`. Los servicios desactivados en shared-infra (database/rabbitmq) entran
+# en scope pero no tienen containers en este project: el down no los toca.
+# El `up` de abajo usa los profiles del `.env` del host (COMPOSE_PROFILES): cada
+# servicio con profile vuelve a levantar solo si la app lo declaró ahí.
 echo ">> down"
-COMPOSE_PROFILES=cron "${COMPOSE[@]}" down --remove-orphans
+"${COMPOSE[@]}" --profile '*' down --remove-orphans
 
 echo ">> up -d --build"
 "${COMPOSE[@]}" up -d --build

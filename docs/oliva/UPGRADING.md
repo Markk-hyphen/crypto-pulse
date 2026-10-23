@@ -11,6 +11,11 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 > editando `deploy.sh`. Hasta acá el script le decía al fork "agregá `--profile cron` al up"
 > (un archivo OLIVA-owned que el fork no debe tocar), y una app con tareas en el crontab y sin
 > el profile declarado deployaba sin scheduler, sin ningún error.
+>
+> `down` de los scripts: bajaba con `COMPOSE_PROFILES=cron`, que reemplaza los profiles del
+> `.env`: cualquier servicio de otro profile quedaba corriendo con la versión vieja después del
+> deploy. Hoy no le pega a ningún fork (en shared-infra no hay servicios de `queues` en prod),
+> pero sí al `worker` de prod que viene (va detrás de `queues`). Ahora baja con `--profile '*'`.
 
 **Acción requerida en el fork**
 
@@ -27,6 +32,9 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
   tareas, imprime un aviso. No aborta el deploy.
 - `scripts/deploy.sh`, `scripts/deploy-staging.sh`: llaman al aviso al final; el mensaje
   final de `deploy.sh` ya no pide editar el script.
+- `scripts/deploy.sh`, `deploy-staging.sh`, `down.sh`, `down-staging.sh`: el `down` corre con
+  `--profile '*'` en vez de `COMPOSE_PROFILES=cron`. Baja todos los servicios con profile,
+  incluidos los que agregue el fork. Sin `-v`, como siempre: los volúmenes no se tocan.
 - `AGENTS.md`, `.env.example`: documentan `COMPOSE_PROFILES` del host como el mecanismo.
 
 ## 1.4.1 — 2026-10-23
