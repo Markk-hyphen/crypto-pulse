@@ -254,3 +254,27 @@ Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de a
 **Hallazgo lateral: `backend/config/reference.php` estaba trackeado y cada build lo reescribía.** Lo expuso el propio `verify.sh` de este parche, que dejó el árbol sucio. Es auto-generado (`cache:clear`, vía `auto-scripts` → `post-install-cmd`) y solo sirve para el autocompletado del IDE: nada en runtime lo lee. Es la misma clase de problema que los environments de Bruno ya documentados en `CLAUDE.md` —archivo trackeado que una herramienta reescribe sola—, pero acá con un costo extra: `release.sh` exige árbol limpio, así que un archivo que se ensucia en cada build bloquea el release justo cuando se quiere publicar rápido. Encima la copia que estaba en git quedó **stale**: listaba `when@development`, un entorno que el proyecto dejó de usar cuando `APP_ENV` pasó a nombres cortos (PASO 1.1), así que lo versionado era además incorrecto. Se destrackeó en vez de commitear la regeneración (volvería a ensuciarse en el build siguiente). Verificado antes de sacarlo del índice que se regenera: borrado del disco + `cache:clear` lo recrea idéntico en tamaño (1577 líneas).
 
 **Deuda que este ejercicio expuso y NO se resolvió acá:** `deps.sh due` avisa **por calendario**, no por advisory. Un CVSS 9.2 explotándose activamente no puede esperar el ciclo mensual, y este lo detectó Marcos leyendo las noticias, no el tooling. No se improvisó un fix en el commit del parche a propósito: requiere decidir una fuente de advisories (GitHub Security Advisories, feed de php.net) y dónde engancharla, y mezclarlo con un parche urgente habría sido meter una decisión de diseño sin discutir en un commit que tiene que ser revisable de un vistazo.
+
+## [deps 1er ciclo] chore(deps): techo `^0.4` en mercure-bundle + update dentro de rangos (a medias)
+**Hash:** `98c19fd` (techo), `46e661f` (update), merge `aa3b6c9`
+**Rama:** `chore/deps-2026-10-22` → `main` (local, sin pushear)
+**Fecha:** 2026-10-22
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/composer.json` | modificado | `symfony/mercure-bundle` `"*"` → `"^0.4"` (98c19fd). Después `deps.sh update` subió el resto dentro de rangos (46e661f). |
+| `backend/composer.lock` | modificado | ~50 paquetes: Symfony 7.4.21, doctrine/orm 3.7.5, dbal 4.5.0, phpunit 12.5.40, `mercure-bundle` 0.4.3. |
+| `frontend/package.json`, `frontend/yarn.lock` | modificado | `yarn upgrade` dentro de rangos; `package.json` quedó reordenado alfabéticamente (ruido, sin cambio funcional). |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**Primer ciclo de mantenimiento de Oliva.** Cierra las 2 CVE del `composer audit` (`http-foundation` ReDoS, `yaml` recursión sin tope): ambas se tapan con bumps dentro de rango (→ 7.4.21). `verify.sh` 8/8 y `composer audit` limpio.
+
+**Problema no previsto: el primer `update` rompió el build.** `composer.json` tenía `"*"` en `mercure-bundle` (también en `doctrine-migrations-bundle` y `maker-bundle`). Para composer cualquier versión está "en rango", así que `deps.sh update` lo subió 0.4.2 → **0.6.1**, aunque `report` lo marcaba `⇑` (manual). 0.6.1 exige claims `iss`/`sub`/`client_id` (RFC 9068) en `mercure.yaml` y el build de prod caía en `cache:clear` (`verify.sh`: 6 de 8 en FAIL). El `report` y el `update` no coinciden porque el primero compara contra el lock y el segundo contra el constraint.
+
+**Decisión: techo, no fix de config.** Se descartó arreglar `mercure.yaml` en el mismo ciclo: toca el corazón de Oliva, requiere decidir qué claims poner y afecta a los forks (es la deuda "Mercure en modo compat 8"). El doc pide un commit por salto, así que el 0.6 va aparte. El bundle no se puede sacar: Oliva no lo usa (`live.php` publica con HTTP crudo), pero **ambos forks inyectan `HubInterface`** (finanzas-ong en `NotificationPublisher`, crypto-pulse en 3 clases) y un fork no edita archivos de Oliva.
+
+**Efecto lateral a tener presente:** `"bump-after-update": true` en `composer.json` reescribe los constraints a lo instalado (`"*"` → `">=x"`, `^2.18` → `^2.19.1`), así que se pierden techos; uno explícito como `^0.4` sí sobrevive. Quedan otros `"*"` sin techo. Los forks tienen `"*"` en mercure-bundle: su próximo `composer update` rompe igual.
+
+**Pendiente del ciclo (no hecho):** Node 20→24 (EOL), RabbitMQ 3→4 (EOL), notas en `UPGRADING.md`, `release.sh`, push y sync a forks. Fuera de alcance a propósito: pg15→18, php8.3→8.5, 6 majors de frontend, actions.
