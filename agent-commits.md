@@ -376,3 +376,35 @@ Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
 **Guardrail escrito por duplicado, a propósito:** los comandos de operación (`deploy`/`down`) son pass-throughs sin flags nuevos. Está en el epic **y** en el roadmap porque es la decisión más fácil de erosionar después, y el roadmap es donde alguien va a ir a buscar permiso para agregar `--cron`. Los flags son el ítem 3 y esperan la señal del ítem 1.
 
 **Alcance de la planificación:** las fases 1-3 quedaron con gates verificables (comparar exit codes, un `grep` de completitud con allowlist de 4 archivos, `/context` para confirmar que el import carga) justamente porque el modo de falla es mudo. La fase 4 (forks) se marcó como **criterio, no mecánica**: resolver merges sobre un archivo SHARED no se delega a un checklist.
+
+## [1.4.0] feat: capa agéntica — CLI `./oliva` + migración a `AGENTS.md` (vendor-neutral)
+**Commits:** `0fb3a68` feat(cli) · `9ac83f3` feat(agents) · `e4ca9ec` docs(upgrading) · `e644e09` release
+**Rama:** `main`
+**Fecha:** 2026-10-23
+**Ejecuta el plan de:** `docs/roadmap/epics/E-capa-agentica.md` (entrada `87632ca`). Release `v1.4.0`.
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `oliva` | nuevo | Entry point del framework. Dispatcher puro (`exec` preserva args/stdin/stdout/exit) sobre `scripts/oliva/*.sh` y `scripts/*.sh`; única lógica propia: `doctor` (chequeos read-only que sobreviven a cada paso). No va al PATH. |
+| `CLAUDE.md` | nuevo | Stub de 1 línea `@AGENTS.md` (import de Claude Code). OLIVA-owned. |
+| `CLAUDE.md` → `AGENTS.md` | renombrado (`git mv`) | La guía operativa pasa al formato abierto. `git mv` preserva rename-detection para que el fork merjee limpio. Self-refs internas actualizadas; bloque de 7 chequeos de sanidad reemplazado por `./oliva doctor`. |
+| `claude-commands.md` → `agent-commands.md` | renombrado (`git mv`) | Título `# Agent Commands`; nota de prefijo configurable. Los triggers `claude <x>` quedan igual (es frase-gatillo, no herramienta). |
+| `rules-claude.md` → `AGENTS.local.md` | renombrado (`mv`, gitignored) | + entrada en `.gitignore`. |
+| `scripts/oliva/owned-paths.txt` | modificado | `oliva` y `CLAUDE.md` marcados OLIVA-owned; comentario SHARED actualizado a `AGENTS.md`/`agent-commands.md`. |
+| `README.md`, `docs/oliva/actualizaciones.md`, `docs/qa-y-staging.md`, `docs/concepts.md`, `scripts/deploy.sh`, `scripts/oliva/sync.sh`, `docs/roadmap/epics/E-seeding-layer.md` | modificado | Barrido de cross-refs `CLAUDE.md`→`AGENTS.md` / `claude-commands.md`→`agent-commands.md`. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección `## 1.4.0` (gate del release): "Acción requerida en el fork" + "Qué cambió". |
+| `OLIVA_VERSION` | modificado | `1.3.0` → `1.4.0` (vía `./oliva release`). Tag anotado `v1.4.0`. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**Por qué el stub `CLAUDE.md` y no el rename limpio** (lo que define todo el diseño): Claude Code lee `AGENTS.md` nativo pero **solo si no hay `CLAUDE.md`/`CLAUDE.local.md` en el cwd ni en ningún padre**; como `/home/marcos/CLAUDE.md` vive por encima de todos los repos, un `AGENTS.md` a secas quedaría tapado y el agente dejaría de leer la guía **sin ningún síntoma**. El stub (import `@AGENTS.md` en primera línea sin fence) resuelve el choque sin duplicar contenido, y se declara OLIVA-owned → conflicto cero para siempre, la superficie SHARED queda solo en `AGENTS.md`.
+
+**Por qué el CLI vale el churn:** no es ergonomía (eso se descartó en el análisis) sino una **capa de indirección**. Los docs SHARED referencian paths de scripts; mover/partir/renombrar un script era un diff en archivo compartido → conflicto en cada fork. `oliva <verbo>` estable desacopla las internals de los docs. Mismo razonamiento que `owned-paths.txt`.
+
+**`doctor` y `set -e`:** read-only por diseño, ningún paso puede matar al comando (helper `step()` captura cada fallo y sigue) — tiene que correr con Docker abajo, que es justo cuando más se lo necesita al arrancar. Verificado en sesión posterior: con containers abajo, el paso de migraciones informó el fallo y el resto siguió.
+
+**Gates verificados antes del release** (el modo de falla es mudo, así que no alcanzaba con revisar el código): output idéntico CLI vs script directo, bit ejecutable (`100755`), propagación de exit codes, resiliencia de `doctor`, `verify.sh` full PASS, barrido `grep` de cross-refs con allowlist, y **gate 13** — `/context all` en sesión fresca confirmó que cargan tanto el stub `CLAUDE.md` (14 tokens) como `AGENTS.md` (11k). 
+
+**Fuera del repo pero parte del trabajo:** `/home/marcos/CLAUDE.md` (spec de `claude new project`) se actualizó a la convención nueva en una sesión posterior — no se versiona (no es repo). La **Fase 4** (sync de forks a 1.4.0) queda pendiente, explícitamente no-mecánica, una sesión por fork.
+
