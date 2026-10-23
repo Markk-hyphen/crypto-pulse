@@ -62,6 +62,13 @@ La base de datos usa la imagen `pgvector/pgvector:pg${POSTGRES_VERSION}` — es 
 
 `docker-compose.override.yml` (dev) define `worker` con `bin/console messenger:consume`, pero no hay equivalente en `docker-compose.prod.yml` ni en el `docker-compose.yml` base. Si una app usa RabbitMQ/Messenger en serio, antes de ir a producción hay que agregar un servicio `worker` (imagen `${COMPOSE_PROJECT_NAME}-backend:prod`, comando `messenger:consume`, sin exponer puertos). `scheduler` sí está cubierto en prod (usa `${COMPOSE_PROJECT_NAME}-backend:prod` / target `frankenphp_prod`, igual que `backend`).
 
+**Ya no es teórica (auditoría 2026-10-23):** crypto-pulse declara `COMPOSE_PROFILES=queues,cron`
+y su stack de prod resuelve a `backend frontend scheduler` — sin worker, los mensajes async se
+encolarían y nadie los consumiría. No es un cambio chico: el servicio tiene que existir en
+`prod.yml`, en `shared-infra.yml` (red `data_net`, `depends_on` anulado, DSN del RabbitMQ
+compartido) y en `staging.yml` (imagen y `APP_ENV` de staging), y va detrás del profile `queues`,
+así que depende de arreglar antes el `down` de los deploys (ver "profiles en los scripts de deploy").
+
 Mercure (`/.well-known/mercure`) está siempre activo vía el hub de Caddy (`backend/frankenphp/Caddyfile`); la demo de canvas en vivo (`backend/public/live.php` + `frontend/src/js/live.js`) muestra que funciona out of the box.
 
 ### Aislamiento por app: todo cuelga del project name
@@ -78,6 +85,24 @@ Varias apps Oliva conviven en el mismo host (en dev, tu máquina; en prod, el VP
 **Regla para forks:** no introducir nombres globales (`image:` con tag fijo, `name:` en redes/volúmenes, `container_name:`). Un nombre fijo es global al daemon Docker y choca en silencio con la otra app: hasta Oliva 1.1 el tag `app-backend-dev:1.0` hacía que el build de finanzas-ong pisara la imagen de CMP (y viceversa), y la red `app_network` era la misma para las dos.
 
 **Guard de colisión en los scripts** (`scripts/lib/project-guard.sh`, sourceado por `deploy*.sh`/`down*.sh`): antes de `down`/`up`, aborta si el project ya tiene containers levantados desde **otro** directorio (label `com.docker.compose.project.working_dir`, que Compose pone solo), y rechaza nombres de app que terminen en `-staging` (sufijo reservado). Lo que el guard **no** cubre: `infra/scripts/provision-postgres.sh` se sigue tipeando a mano y puede driftear del project name. Convención: `<app>_db`/`<app>_user` con el mismo `<app>` que el `-p`.
+
+### Deuda conocida: profiles en los scripts de deploy
+
+- `scripts/deploy.sh` termina diciendo "agregá `--profile cron` al up", pero el script es
+  OLIVA-owned: un fork no lo puede editar. El mecanismo real es `COMPOSE_PROFILES` en el `.env`
+  del host (Compose lo lee solo en el `up`). Un fork que necesita cron en prod (finanzas-ong:
+  auto-confirm de pagos + reintentos de notificaciones) lo pierde en silencio si su `.env` no lo
+  declara. Corregir el mensaje y documentarlo.
+- El `down` de `deploy.sh`/`deploy-staging.sh` corre con `COMPOSE_PROFILES=cron`, que
+  **reemplaza** los profiles del `.env`: un servicio de otro profile (`queues`) queda fuera del
+  `down` y sigue corriendo viejo. Candidato: `--profile '*'` en el `down`.
+
+### Deuda conocida: constraints sin techo + `bump-after-update`
+
+`backend/composer.json` (en Oliva y en los forks) tiene `doctrine/doctrine-migrations-bundle
+>=3.7.1` y `symfony/maker-bundle >=1.68`, y `"bump-after-update": true` convierte otros rangos en
+`>=`. Con eso `deps.sh update` puede subir un major sin aviso (ya pasó con mercure-bundle 0.6).
+Ponerles techo (`^3.7`, `^1.68`) y decidir si `bump-after-update` se queda.
 
 ### Deuda conocida: environments de Bruno commiteados se ensucian solos al testear
 
