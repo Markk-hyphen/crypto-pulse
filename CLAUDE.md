@@ -43,6 +43,7 @@ El target de deploy de CMP es la **infra compartida** (`~/infra`: Postgres + Rab
 - `backend/` — Symfony con FrankenPHP (Doctrine ORM/Migrations, pgvector, Mercure, Messenger)
 - `frontend/` — Vite (Node)
 - `docs/concepts.md` — glosario técnico acumulativo (explicaciones agregadas a pedido)
+- `docs/qa-y-staging.md` — qué garantías ofrece el framework (verify.sh, los 3 jobs de CI, stack de staging, seeding) y qué NO cubre
 - `docs/examples/` — esqueletos de referencia no registrados como código de la app
 - `docs/oliva/` — docs **de Oliva** (no editar acá): `actualizaciones.md` (updates/sync) y `UPGRADING.md`
 - `scripts/oliva/` — herramientas de Oliva: `sync.sh`, `deps.sh`, `verify.sh` (no editar acá)
