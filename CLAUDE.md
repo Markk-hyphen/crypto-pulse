@@ -142,8 +142,13 @@ git log --oneline -3               # orientarse en dónde quedó la sesión ante
 docker compose ps                  # todos los servicios healthy (incl. rabbitmq/worker/scheduler por profiles)
 docker compose exec backend bin/console doctrine:migrations:status  # sin migraciones pendientes
 scripts/oliva/sync.sh check        # ¿Oliva avanzó? (avisar a Marcos, no syncear solo)
-scripts/oliva/deps.sh due          # ¿toca revisar dependencias propias de CMP?
+scripts/oliva/deps.sh due          # ¿toca ciclo de deps (~45d)? ¿toca audit de seguridad (~7d)?
 ```
+
+`deps.sh due` reporta DOS cadencias: el ciclo de deps (frescura, ~45 días) y el **audit de CVEs**
+(seguridad, ~7 días → `scripts/oliva/deps.sh audit`: composer + yarn audit + Trivy sobre las
+imágenes base, la capa que composer/yarn audit no ven). Si el audit avisa que TOCA, correr
+`deps.sh audit` — un CVE no espera al ciclo. Ver `docs/oliva/actualizaciones.md` ("El aviso por advisory").
 
 Smoke completo del stack (tras un sync o un cambio de dependencias): `OLIVA_VERIFY_SKIP=schema scripts/oliva/verify.sh` (`schema` en rojo conocido por pgvector, ver deuda 🔴).
 

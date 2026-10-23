@@ -63,6 +63,39 @@ En CI (GitHub Actions) el equivalente es la **variable de repo** `OLIVA_CI_SKIP`
 `phpunit`): un fork que tiene un paso en rojo conocido lo apaga sin editar `ci.yml`, que es de
 Oliva — `gh variable set OLIVA_CI_SKIP --body schema -R <owner>/<repo>`.
 
+## El aviso por advisory (CVEs, fuera del ciclo)
+
+El ciclo de arriba corre cada ~45 días: eso sirve para **frescura**, no para
+**seguridad**. Un CVE crítico no espera al próximo ciclo. Por eso hay una segunda
+cadencia, más corta y solo-CVE: **`scripts/oliva/deps.sh audit`** (~7 días), fiel al
+principio de que el recordatorio vive en el flujo —  `deps.sh due` (el chequeo de
+inicio de sesión de siempre) ahora también dice hace cuánto que no corrés `audit`.
+
+**Una fuente por capa, no varias apiladas.** Es la decisión de diseño del audit. Las
+grandes bases de advisories de *paquetes* se alimentan entre sí (GHSA ⟵ NVD +
+FriendsOfPHP; la API de Packagist que usa `composer audit` ⟵ FriendsOfPHP + GHSA;
+OSV ⟵ GHSA). Apilar GHSA + OSV + Packagist sobre el **mismo `composer.lock`** da
+casi los mismos hallazgos con distinto ID: es redundancia, no robustez. La robustez
+viene de cubrir **capas distintas**, cada una con una buena fuente:
+
+| Capa | Qué puede tener un CVE | Fuente |
+|---|---|---|
+| Paquetes PHP (`composer.lock`) | Symfony, Doctrine, … | `composer audit` → Packagist/GHSA |
+| Paquetes JS (`yarn.lock`) | Vite y su árbol | `yarn audit` → GHSA |
+| **Imágenes base** | **SO + binarios DENTRO de la imagen** (OpenSSL del postgres, el binario de Caddy en FrankenPHP, …) | **Trivy** (DB propia ≈ GHSA + NVD + distros) |
+
+La capa de imágenes era el agujero: `composer`/`yarn audit` ven los *paquetes* de la
+app, nunca lo que vive adentro de la imagen base. Trivy la cierra. `deps.sh audit`
+corre las tres; `deps.sh report` incluye la de Trivy en la foto completa; y el CI
+tiene un job `image-scan` (report-only) con la misma versión pinneada de Trivy.
+
+Detalles operativos: Trivy corre como **contenedor pinneado** (nada que instalar en
+el host), escanea el **ref base** fijado (no la imagen prod buildeada: ahí viven casi
+todos los CVEs de imagen y no hace falta buildear), filtra HIGH/CRITICAL **con fix
+disponible** (`--ignore-unfixed`), y lee `.trivyignore` para los CVEs aceptados. El
+pin de Trivy se bumpea en el ciclo de deps como cualquier otra imagen (nunca < 0.71.1:
+la v0.69.4 estuvo comprometida en un incidente de supply-chain).
+
 ## Lado fork: traer Oliva
 
 Requisitos: remote `oliva-upstream` → `https://github.com/Markk-hyphen/oliva.git`, y el fork

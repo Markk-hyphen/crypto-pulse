@@ -1,0 +1,8 @@
+# CVEs aceptados o infixables de las imágenes base, para que `deps.sh audit` /
+# `deps.sh scan-images` y el CI no los vuelvan a marcar. Uno por línea, formato:
+#
+#   CVE-2024-12345            # por qué se acepta / hasta cuándo (ej: infixable hasta que el upstream rebuildee)
+#
+# Trivy ya filtra por --ignore-unfixed (solo CVEs con fix) y --severity HIGH,CRITICAL,
+# así que esto es para el caso en que un HIGH/CRITICAL con fix no aplica a esta app o
+# no se puede subir todavía. Mantener corto y justificado: cada línea es deuda de seguridad.
