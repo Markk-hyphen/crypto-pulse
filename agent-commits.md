@@ -279,6 +279,33 @@ Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de a
 
 **Pendiente del ciclo (no hecho):** Node 20→24 (EOL), RabbitMQ 3→4 (EOL), notas en `UPGRADING.md`, `release.sh`, push y sync a forks. Fuera de alcance a propósito: pg15→18, php8.3→8.5, 6 majors de frontend, actions.
 
+## [1.2.0] chore(deps): cierre del 1er ciclo — Node 24 + RabbitMQ 4 (ambos EOL) y release
+**Hash:** `d409ce9` (node), `fb0370b` (rabbitmq), `e146283` (UPGRADING), `8304522` (release)
+**Rama:** `main` (directo; los saltos de imagen no fueron por `chore/deps-*`)
+**Fecha:** 2026-10-22
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `frontend/Dockerfile` | modificado | Imagen base `node:20-slim` → `node:24-slim` (d409ce9). |
+| `docker-compose.yml` | modificado | `rabbitmq:3-management` → `rabbitmq:4-management` (4.4.0) (fb0370b). |
+| `docs/oliva/UPGRADING.md` | modificado | Sección 1.2.0: acción requerida por fork + qué cambió (e146283). |
+| `OLIVA_VERSION` | modificado | `1.1.5` → `1.2.0` (8304522, vía `release.sh`). |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**Cierra los pendientes que el 1er ciclo dejó anotados** (ver entrada anterior): Node 20→24 y RabbitMQ 3→4, ambos por EOL, más notas y release. Un commit por salto, como pide el protocolo — no un bump masivo.
+
+**Node: por qué 24 y no 26.** Node 20 quedó EOL el 2026-04-30. Se eligió 24 ("Krypton") por ser **Active LTS**; 26 salió este mes como *Current* y todavía no es LTS. Un framework base no estrena línea no-LTS: el costo de equivocarse lo pagan todos los forks. Swap limpio, `verify.sh` 8/8 con el `vite build` de prod sobre node 24.
+
+**RabbitMQ: el salto con trampa, y es la razón por la que esto necesitó `UPGRADING.md` sí o sí.** 3.x está EOL desde 2024-09. Pero un nodo 4.0 levantado sobre un volumen poblado por un 3.x **se niega a bootear** si quedan *required feature flags* sin habilitar, y **no deja rastro obvio** — parece que el container simplemente no arranca. El `enable_feature_flag all` hay que correrlo **antes** del swap, con el nodo todavía en 3.13. Dato que evita un paso intermedio: el tag viejo `3-management` ya resolvía a 3.13.7, que es la única versión desde la que 4.0 soporta upgrade directo. Un fork que nunca activó el profile `queues` no tiene nada que hacer (un nodo 4.0 fresco nace con todos los flags enabled), y por eso la nota está escrita por caso y no como un paso único.
+
+**Además, 4.0 eliminó las classic mirrored queues.** Se verificó que no afecta: los transports de ejemplo de Oliva (`ingest`/`enrich`/`failed`) son classic queues normales, no mirrored. Se dejó dicho igual en `UPGRADING.md` porque un fork sí pudo haber definido HA policies propias.
+
+**Por qué el release es parte de esta entrada y no un trámite:** `release.sh` se niega a publicar una versión sin su sección en `UPGRADING.md`. En un salto como el de RabbitMQ ese gate es lo único que separa a un fork con datos de un nodo que no bootea — el canal hacia los forks es la entrega, no un anexo.
+
+**No verificado por imposibilidad:** el procedimiento de feature flags sobre un volumen 3.x real. Se validó el camino limpio (nodo 4.4.0 healthy por `rabbitmq-diagnostics ping`, worker de Messenger conectando por AMQP y declarando colas). AMQP 0-9-1 no cambió entre 3 y 4, así que `php-amqp` no necesitó bump.
+
 ## [PASO 3.1] feat(deps): el aviso por advisory — audit de CVEs fuera del ciclo + Trivy para imágenes base
 **Hash:** `14aaeaa`
 **Rama:** `feat/advisory-audit`
@@ -306,3 +333,46 @@ Lo que **sí** se cierra acá es el otro hueco: `verify.sh` no tenía forma de a
 **Trivy:** corre como contenedor pinneado (`aquasec/trivy:0.72.0` — nada que instalar en el host) sobre el **ref base** fijado (no la imagen prod buildeada: ahí viven casi todos los CVEs de imagen y no hace falta buildear), filtra HIGH/CRITICAL **con fix** (`--ignore-unfixed`) y lee `.trivyignore`. Pin ≥ 0.71.1 obligatorio: la v0.69.4 estuvo comprometida (incidente de supply-chain 2026-03, que también afectó tags de `trivy-action` → por eso en CI se usa `docker run` con el pin, no la action). En CI el job es report-only a propósito: un CVE de imagen base puede ser infixable hasta que el upstream rebuildee; no se quiere `main` en rojo perpetuo.
 
 **Dos bugs propios que destapó la corrida real** (no previstos en el plan), ambos de interacción con `set -e`: (1) `[[ cond ]] && rc=1` abortaba el loop en la 1ª imagen sin findings (short-circuit → lista en falso → `set -e`); (2) el pipeline `trivy ... | sed` con `--exit-code 1` + `pipefail` abortaba en la 1ª imagen *con* findings. Por eso la 1ª corrida solo escaneó `caddy`. Fix: capturar salida+estado con `out="$(...)" || status=$?` y un `if` explícito, nunca el idiom `&&`. Verificado: scan de las 5 imágenes completo, exit 1 con findings (caddy 26+68, node 3, pgvector 29+26, rabbitmq 4; FrankenPHP 0 — ya parchado en 1.1.5).
+
+## [docs] README — sección "Built for agentic development"
+**Hash:** `b6f83df`
+**Rama:** `main`
+**Fecha:** 2026-10-23
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `README.md` | modificado | Sección nueva, hermana de `## Staying patched`: qué guardrails para agentes shipea Oliva con el código. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**Qué hace distinto a la sección:** encuadra los guardrails **por nivel de garantía**, no como una lista plana de features. Ownership (`owned-paths.txt`) se nombra explícitamente como **convención, no candado** — *"git won't stop you"* —; `release.sh` y `project-guard.sh` se nombran como **gates reales** (abortan); `deps.sh due` como **cadencia**. Mezclar los tres niveles vendería como garantía algo que no lo es, y la primera vez que un fork editara un `owned-path` sin que pasara nada, el README quedaría desmentido.
+
+**Omisiones deliberadas:** no menciona `rules-claude.md` ni el `CLAUDE.md` raíz de la máquina. Son setup personal y **no bajan a ningún fork**; nombrarlos en el README público daría a entender que son parte de lo que se clona.
+
+**Consecuencia a tener presente:** `README.md` es **SHARED**, así que esta sección **no baja por sync**. Si se la quiere en los READMEs de los forks hay que adaptarla a mano, uno por uno (no pedido aún).
+
+Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
+
+## [docs] Epic de la capa agéntica + ítem 5 del roadmap
+**Hash:** `87632ca`
+**Rama:** `main`
+**Fecha:** 2026-10-23
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docs/roadmap/epics/E-capa-agentica.md` | nuevo | Plan completo de los 2 ejes (CLI `./oliva` + migración a `AGENTS.md`): decisiones cerradas, diseño del CLI, 4 fases con gates, texto obligatorio de `UPGRADING.md` 1.4.0, riesgos. |
+| `docs/roadmap.md` | modificado | Ítem 5 "Agent layer: one entry point, vendor-neutral spec" + diagrama de secuencia actualizado. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**El hallazgo que define el diseño, y la razón de que esto se planificara antes de ejecutar:** el rename directo de `CLAUDE.md` a `AGENTS.md` **rompe, y rompe mudo**. Verificado contra la doc oficial: Claude Code lee `AGENTS.md` nativo desde v2.1.277, pero **solo si no hay `CLAUDE.md` ni `CLAUDE.local.md` en el cwd ni en ningún directorio por encima**. Como existe uno por encima de los repos, taparía el `AGENTS.md` de cada proyecto y el agente dejaría de leer la guía operativa **sin ningún síntoma**. De ahí que la solución no sea el rename limpio sino `AGENTS.md` (contenido real) + stub `CLAUDE.md` de una línea con `@AGENTS.md`. El symlink se descartó por no ser Windows-safe: git lo checkoutea como texto plano salvo `core.symlinks`.
+
+**Por qué el CLI no se justifica por ergonomía.** El argumento inicial (ahorro de tipeo) era débil y se corrigió durante el análisis: `scripts/oliva/deps.sh due` → `oliva deps due` no vale el churn. Lo que sí lo vale es que hoy **los docs referencian paths** y el doc agéntico es **SHARED**, así que mover, partir o renombrar un script es un diff en un archivo que cada fork también edita → superficie de conflicto en todos. Un `oliva <verbo>` estable es una **capa de indirección**: las internals se mueven sin tocar los docs compartidos. Es el mismo razonamiento que ya justifica `owned-paths.txt`, y es lo que hace al ítem 5 independiente del friction log del ítem 1.
+
+**Hallazgo lateral que mejora el diseño:** el stub `CLAUDE.md` se declara **OLIVA-owned**. Nunca cambia y ningún fork lo edita → conflicto cero para siempre, y la superficie SHARED queda solo en `AGENTS.md` (igual que hoy, no empeora).
+
+**Guardrail escrito por duplicado, a propósito:** los comandos de operación (`deploy`/`down`) son pass-throughs sin flags nuevos. Está en el epic **y** en el roadmap porque es la decisión más fácil de erosionar después, y el roadmap es donde alguien va a ir a buscar permiso para agregar `--cron`. Los flags son el ítem 3 y esperan la señal del ítem 1.
+
+**Alcance de la planificación:** las fases 1-3 quedaron con gates verificables (comparar exit codes, un `grep` de completitud con allowlist de 4 archivos, `/context` para confirmar que el import carga) justamente porque el modo de falla es mudo. La fase 4 (forks) se marcó como **criterio, no mecánica**: resolver merges sobre un archivo SHARED no se delega a un checklist.
