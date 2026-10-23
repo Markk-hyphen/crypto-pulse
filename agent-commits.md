@@ -973,7 +973,7 @@ _Actualizado el mismo día: Oliva 1.1.1 (limpieza de restos de build en deploy y
 
 ---
 
-## `edcec13` — brand: wordmark + ícono CP y favicon propio de CMP
+## `90bd566` — brand: wordmark + ícono CP y favicon propio de CMP
 
 **Rama:** `main` · **Fecha:** 2026-10-23
 
