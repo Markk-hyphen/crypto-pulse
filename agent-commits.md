@@ -466,3 +466,29 @@ Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
 **Por qué no aborta:** un fork puede tener el crontab lleno y elegir no correr cron en un host puntual; el deploy no debe fallar por eso. Si Compose falla al resolver, no se avisa (sería un falso positivo).
 
 **Descartado:** sumar el aviso a `./oliva doctor`. En dev no tener `cron` activo es normal y sería ruido (decisión de Marcos).
+
+## [1.4.2] fix: `down` con `--profile '*'` en los scripts de deploy (#8 de la auditoría)
+**Hash:** `642fd13`
+**Rama:** `main`
+**Fecha:** 2026-10-23
+**Origen:** auditoría "puntos sensibles para forks" (#8). Prerequisito del worker de prod (#6). Release 1.4.2 (sin publicar).
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/deploy.sh` | modificado | `COMPOSE_PROFILES=cron ... down` → `... --profile '*' down --remove-orphans`. Comentario reescrito con el porqué. |
+| `scripts/deploy-staging.sh` | modificado | Ídem. |
+| `scripts/down.sh` | modificado | Ídem. |
+| `scripts/down-staging.sh` | modificado | Ídem. |
+| `AGENTS.md` | modificado | Sale la deuda "profiles en los scripts de deploy"; queda una nota de por qué `'*'`. La deuda del worker ya no depende de esto. |
+| `docs/oliva/UPGRADING.md` | modificado | Ítem en la sección `## 1.4.2 — sin publicar`. Sin acción para el fork. |
+| `agent-commits.md` | modificado | Esta entrada (commit aparte). |
+
+### Justificación
+**El disparador es el overlay, no el profile solo.** Con Compose 2.26, un `down` sin el profile activo deja corriendo (sin error) a un servicio con `profiles:` **cuando un overlay lo redefine**, como hace `prod.yml` con `scheduler`/`rabbitmq`. Con un solo archivo, el `down` sí lo baja: las primeras pruebas mínimas daban falso negativo. Con el overlay: `down` sin profile deja `scheduler`+`rabbitmq`; el `COMPOSE_PROFILES=cron` de antes deja `rabbitmq` (la variable **reemplaza** los profiles del `.env`, no suma); `--profile '*'` no deja nada. Verificado también con el `down.sh` real contra un stack busybox que imita los 3 archivos de prod, con `COMPOSE_PROFILES=queues,cron` y vacío.
+
+**Por qué `'*'` y no listar los profiles:** una lista fija (`cron,queues`) se pudre en cuanto un fork agrega un servicio con profile propio, y el script es OLIVA-owned: el fork no la puede extender.
+
+**Por qué es inocuo con shared-infra:** `'*'` mete en scope a `database`/`rabbitmq` desactivados (`disabled-in-shared-infra`). En ese project no tienen containers, así que el `down` no los toca; sin `-v` no se borra ningún volumen.
+
+**Impacto real hoy:** latente. En shared-infra no corre nada de `queues` en prod (`rabbitmq` desactivado, sin `worker`), así que ningún fork lo sufría todavía. Le iba a pegar al `worker` de #6.
