@@ -13,6 +13,7 @@ A **real-time crypto market intelligence** platform: ingest public sources → e
 ![Mercure](https://img.shields.io/badge/Realtime-Mercure-2EA3F2?style=flat-square)
 ![Anthropic](https://img.shields.io/badge/AI-Anthropic%20Claude-D97757?style=flat-square)
 ![Docker](https://img.shields.io/badge/Infrastructure-Docker%20Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Security](https://img.shields.io/badge/Security-CVE%20audit%20%2B%20Trivy-2E7D32?style=flat-square&logo=letsencrypt&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 ---
@@ -62,6 +63,28 @@ The emphasis is on the pipeline being **robust**, not just working: timeouts and
 Out of band, two more jobs keep the pipeline healthy: `app:enrich:requeue-pending` (every 15 min) rescues items left in `pending` by a half-completed dual-write, and `app:failed:inspect` lets you review Symfony Messenger's `failed` queue.
 
 ---
+
+## Staying patched
+
+A framework built on PHP, FrankenPHP and a stack of base images lives or dies by how fast it reacts to a CVE. Oliva's answer isn't "trust us, it's patched" — it's a workflow that makes *falling behind something you have to actively ignore*. It does not patch you automatically; it makes staying patched the default and makes an unpatched state loud.
+
+- **Security runs on its own clock, separate from freshness.** The routine dependency cycle (`deps.sh update`, ~45 days) is about staying current. A critical CVE doesn't wait for it. `deps.sh audit` runs **on demand**, and `deps.sh due` — a one-second offline check meant to run when you open a session — nags once it's been more than a week since the last audit. You don't go hunting for the news; the workflow surfaces it.
+- **Three layers audited, including the one `composer audit` can't see.** `composer audit` (PHP packages) + `yarn audit` (JS packages) + **[Trivy](https://trivy.dev/)** scanning the OS packages and binaries *inside* the base images — which is exactly where a runtime-level PHP or libc CVE lives. One source per layer, never stacked. Trivy is version-pinned and run as a container (no trust in a floating action tag — a compromised tag is itself a documented supply-chain failure mode, so the version is pinned and audited like any other image).
+- **`verify` proves the *running* PHP is the patched one.** Rebuilding with a fixed image isn't the same as serving it: a reused worker can keep running the old binary, and that gap is the classic way a PHP CVE "fix" quietly doesn't take effect. `verify.sh` fails if the PHP the backend actually serves doesn't match the exact version pinned in the Dockerfile — closing the loop that's easiest to skip under pressure and leaves no trace.
+- **Every fork inherits all of it for free.** `deps.sh audit` runs identically in Oliva and in every app built on it, so when a CVE lands you audit the whole fleet with one command instead of per-repo archaeology. The CI runs the Trivy scan on every build (opt-out per fork).
+
+The mechanics and the per-layer reasoning live under [Staying up to date](#staying-up-to-date-forks) and in [`docs/oliva/actualizaciones.md`](docs/oliva/actualizaciones.md).
+
+## Built for agentic development
+
+Oliva treats the AI agent (or a new human) as an executor that needs guardrails, and ships them with the code. The rules travel with every fork — they're not a local IDE setup.
+
+- **`AGENTS.md` per repo** — operating rules, boundaries and conventions an agent reads before touching code.
+- **File ownership** (`scripts/oliva/owned-paths.txt`) — which files are framework-owned and off-limits to forks. A convention, not a lock: git won't stop you, but `sync.sh` classifies every edit as a conflict and surfaces drift on the next sync.
+- **Enforced gates** — `release.sh` refuses to cut a version without its `UPGRADING.md` section (the only channel Oliva has to its forks); the project guard (`scripts/lib/project-guard.sh`) aborts a deploy that would collide with another app on the same host.
+- **Maintenance cadence** — `deps.sh due` tells an agent when a freshness cycle or a security audit is due, so patching isn't left to memory.
+
+None of this lives in a personal config — it's in the repo, inspectable and versioned.
 
 ## Stack
 
@@ -192,6 +215,14 @@ The full flow is documented in [`docs/oliva/actualizaciones.md`](docs/oliva/actu
 - Full local smoke test: `scripts/oliva/verify.sh`.
 
 > The "Doctrine Schema Validator" step is turned off for CMP (`OLIVA_CI_SKIP=schema` in CI, `OLIVA_VERIFY_SKIP=schema` locally): pgvector introduces structural drift Doctrine can't model (the `vector` type doesn't round-trip its `length`, and the HNSW index is created in raw SQL). It's a known, documented red — not a failure.
+
+👉 **[`docs/qa-y-staging.md`](docs/qa-y-staging.md)** covers all of this in depth, plus the
+**staging stack** (prod's build with a throwaway database and seeded data) and what this
+framework deliberately does *not* verify.
+
+> Deploying several Oliva apps onto one host with a shared Postgres / RabbitMQ /
+> reverse-proxy is supported through the opt-in `docker-compose.shared-infra.yml` overlay.
+> The per-app runbook lives in `AGENTS.md`.
 
 ---
 

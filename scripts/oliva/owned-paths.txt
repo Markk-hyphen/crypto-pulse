@@ -7,6 +7,8 @@
 # o compartido (ver SHARED abajo): ambos lados lo tocan y se combina a mano.
 
 OLIVA_VERSION
+oliva
+CLAUDE.md
 docs/oliva/
 scripts/oliva/
 scripts/lib/
@@ -26,7 +28,7 @@ docker-compose.shared-infra.yml
 
 # SHARED (informativo, sync.sh no lo usa): docker-compose.override.yml,
 # backend/composer.json, backend/config/**, frontend/package.json, .env.example,
-# .env.backend, .gitignore, CLAUDE.md, README.md, claude-commands.md.
+# .env.backend, .gitignore, AGENTS.md, README.md, agent-commands.md.
 # Los locks (composer.lock, yarn.lock, symfony.lock) se regeneran con `sync.sh locks`.
 # Extension points del fork (nunca los cambia Oliva): backend/php-extensions.txt.
 # Logs de commits (agent-commits.md / commits.md): cada repo tiene el suyo; en un sync gana el del fork.

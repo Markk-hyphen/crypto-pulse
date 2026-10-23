@@ -8,7 +8,7 @@ Repo propio `Markk-hyphen/crypto-pulse` (público), **fork de Oliva** como finan
 
 Remote `oliva-upstream` → `https://github.com/Markk-hyphen/oliva.git`. El sync es **one-way Oliva → crypto-pulse** con merge (nunca al revés: el dominio cripto no vuelve al framework; un fix genérico nacido acá se *backportea* a Oliva por su cuenta, ver `docs/oliva/actualizaciones.md`). Herramientas y flujo completo en `docs/oliva/actualizaciones.md`; comando de chat: `claude oliva sync`.
 
-- **Versión de Oliva:** `OLIVA_VERSION` = **1.3.0**. Último sync: **2026-10-23** — trajo commits post-release de `main` (todavía sin tag): `paths-ignore` del CI para pushes solo-docs + `docs/roadmap.md`. CMP queda por delante del tag 1.3.0.
+- **Versión de Oliva:** `OLIVA_VERSION` = **1.4.0**. Último sync: **2026-10-23** — capa agéntica de Oliva: los docs del agente migraron a `AGENTS.md` (con un stub `CLAUDE.md` de una línea, `@AGENTS.md`) + CLI único `./oliva`. Mismo día, antes: 1.3.0 y post-1.3.0 (`paths-ignore` del CI para docs + roadmap).
 - **Al inicio de cada sesión:** `scripts/oliva/sync.sh check` (y `scripts/oliva/deps.sh due`). Si avisan, mencionarlo a Marcos; no syncear sin que lo pida.
 - **Archivos del framework** (`scripts/oliva/owned-paths.txt`): no editarlos acá. Lo que CMP necesite distinto va como opción en Oliva.
 - **Historia:** hasta 2026-10 CMP vivía como rama del repo de Oliva (decisión temprana, no repetible). El sync de 2026-07-02 costó 19 conflictos `add/add` (análisis en `SYNC-NOTES.md`); desde entonces CMP y Oliva comparten ancestro y los merges son 3-way normales.
@@ -21,7 +21,7 @@ docker compose up
 ```
 El `docker-compose.override.yml` se aplica automáticamente: monta el código fuente con hot-reload, expone el backend en `:80` y el frontend en `:3000`.
 
-El project name de dev es el directorio (`crypto-pulse`) → imágenes `crypto-pulse-backend:dev`/`crypto-pulse-frontend:dev`, volúmenes `crypto-pulse_db_data`/`crypto-pulse_rabbitmq_data`, red `crypto-pulse_app_network`. En el VPS el project es `-p crypto` (`crypto-backend:prod`). Convención de Oliva: nada con nombre fijo (ver "Aislamiento por app" en el `CLAUDE.md` de Oliva).
+El project name de dev es el directorio (`crypto-pulse`) → imágenes `crypto-pulse-backend:dev`/`crypto-pulse-frontend:dev`, volúmenes `crypto-pulse_db_data`/`crypto-pulse_rabbitmq_data`, red `crypto-pulse_app_network`. En el VPS el project es `-p crypto` (`crypto-backend:prod`). Convención de Oliva: nada con nombre fijo (ver "Aislamiento por app" en el `AGENTS.md` de Oliva).
 
 **CMP necesita el pipeline completo:** `rabbitmq`/`worker` viven tras el profile `queues` y `scheduler` tras `cron` (modelo de servicios opcionales de Oliva). El `.env` de CMP debe tener `COMPOSE_PROFILES=queues,cron` — sin eso, `docker compose up` levanta solo core (backend + frontend + database) y el pipeline queda a medias. Mercure no tiene profile: va siempre embebido en el backend (hub de Caddy).
 
@@ -29,7 +29,7 @@ El project name de dev es el directorio (`crypto-pulse`) → imágenes `crypto-p
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
-Usa imágenes compiladas (`app-backend-prod:1.0`, `app-frontend-prod:1.0`). El frontend queda expuesto en `:80`.
+Usa imágenes compiladas (`crypto-backend:prod`, `crypto-frontend:prod`; derivadas del project name `-p crypto`). El frontend queda expuesto en `:80`.
 
 ### Build de producción
 ```bash
@@ -71,7 +71,7 @@ El target de deploy de CMP es la **infra compartida** (`~/infra`: Postgres + Rab
 - ✅ **`RssAdapter` — RESUELTO en 1.8.** Header `User-Agent` agregado; feed no-RSS 2.0 (Atom, HTML) ahora **falla ruidoso** (RuntimeException → retry/DLX) en vez de vacío silencioso. Soporte Atom real no se agregó (ambas fuentes son RSS 2.0).
 - 🟢 **`contentHash` es un hash de la URL**, no del contenido. Dedup por URL es razonable; ediciones de título/cuerpo no re-ingestan.
 - 🟢 **Gap de re-embedding:** items enriquecidos sin key de Voyage quedan con `embedding=null` permanente. La búsqueda semántica (2.2) los ignora. Necesitará comando de re-embed antes de Fase 2.
-- 🟢 **Deuda de Oliva sin resolver, documentada en el `CLAUDE.md` de Oliva** (no se copia acá): los environments de Bruno commiteados se ensucian solos al testear (CMP no tiene colección Bruno todavía). El guard de colisión de nombres de los scripts de deploy se resolvió en Oliva 1.1.0.
+- 🟢 **Deuda de Oliva sin resolver, documentada en el `AGENTS.md` de Oliva** (no se copia acá): los environments de Bruno commiteados se ensucian solos al testear (CMP no tiene colección Bruno todavía). El guard de colisión de nombres de los scripts de deploy se resolvió en Oliva 1.1.0.
 - 🟢 **`worker` sin definición de producción** (deuda heredada de Oliva): existe solo en `docker-compose.override.yml` (dev). Antes del deploy real de CMP hay que agregar un `worker` prod (imagen `${COMPOSE_PROJECT_NAME}-backend:prod`, comando `messenger:consume`, sin puertos). `scheduler` sí está cubierto en prod.
 - 🔴 **`doctrine:schema:validate` está en rojo por pgvector — romperá el paso "Doctrine Schema Validator" del CI cuando el schema de CMP llegue a CI (apagado con la variable de repo `OLIVA_CI_SKIP=schema` en GitHub; `verify.sh` local: `OLIVA_VERIFY_SKIP=schema`).** Dos fuentes de drift estructural que Doctrine no sabe modelar: (a) el tipo `vector` no round-trippea el `length` (el comparator siempre quiere `ALTER embedding TYPE vector(1024)`); (b) el índice **HNSW** se crea en SQL crudo en la migración 1.1 (`Version20260601054114.php`) y no es expresable en el mapping ORM → Doctrine siempre lo quiere dropear. Por eso `doctrine:migrations:diff` regenera esa migración espuria (se descartó a mano en 2.1) y `schema:validate` sale con exit 2. **No arreglar hasta cerrar el estudio pgvector/HNSW** (ligado al bloqueante de arriba): la solución probable es un tipo Doctrine custom que reporte bien el `length` + declarar el índice como no gestionado por el schema-tool (`schema_filter` o mapping del índice), pero eso es parte del diseño que Marcos tiene que definir.
 
@@ -99,7 +99,7 @@ Qué hace (requiere Docker Compose ≥ 2.24, por la tag de merge `!override`):
 
 **Identidad de CMP en infra:** db/user de Postgres propios (`crypto_db`/`crypto_user`) + vhost de RabbitMQ propio (`crypto`) + project name `-p crypto`. Los templates de `DATABASE_URL`/`RABBITMQ_DSN` shared-infra están comentados en `.env.backend`, listos para descomentar en el VPS.
 
-### Runbook de deploy con infra compartida (resumen; canónico en el CLAUDE.md de Oliva)
+### Runbook de deploy con infra compartida (resumen; canónico en el AGENTS.md de Oliva)
 
 > **Atajo para redeploys:** `./scripts/deploy.sh` (pull + build + down + up). El setup inicial (pasos 2-4) se hace una sola vez.
 
@@ -117,7 +117,7 @@ Qué hace (requiere Docker Compose ≥ 2.24, por la tag de merge `!override`):
 
 ### Staging
 
-Staging es **una app más** en el VPS: misma infra compartida, DB propia desechable, project name `-p <app>-staging`, imagen `frankenphp_staging` (incluye Foundry + `doctrine:fixtures:load`). Atajo: `./scripts/deploy-staging.sh`; bajar con `./scripts/down-staging.sh`. Runbook completo y gotchas de precedencia de `APP_ENV` en el CLAUDE.md de Oliva (sección "Runbook de staging").
+Staging es **una app más** en el VPS: misma infra compartida, DB propia desechable, project name `-p <app>-staging`, imagen `frankenphp_staging` (incluye Foundry + `doctrine:fixtures:load`). Atajo: `./scripts/deploy-staging.sh`; bajar con `./scripts/down-staging.sh`. Runbook completo y gotchas de precedencia de `APP_ENV` en el AGENTS.md de Oliva (sección "Runbook de staging").
 
 ## Variables de entorno
 
@@ -136,16 +136,15 @@ Ver `.env.example` como referencia. Claves específicas de CMP: `ANTHROPIC_API_K
 Correr al **inicio** de cada sesión antes de tocar código:
 
 ```bash
-git branch --show-current          # debe ser main
-git status -s                      # debe estar limpio (o saber qué hay pendiente)
-git log --oneline -3               # orientarse en dónde quedó la sesión anterior
-docker compose ps                  # todos los servicios healthy (incl. rabbitmq/worker/scheduler por profiles)
-docker compose exec backend bin/console doctrine:migrations:status  # sin migraciones pendientes
-scripts/oliva/sync.sh check        # ¿Oliva avanzó? (avisar a Marcos, no syncear solo)
-scripts/oliva/deps.sh due          # ¿toca ciclo de deps (~45d)? ¿toca audit de seguridad (~7d)?
+./oliva doctor
 ```
 
-`deps.sh due` reporta DOS cadencias: el ciclo de deps (frescura, ~45 días) y el **audit de CVEs**
+Colapsa en una sola llamada read-only: rama, status, log, `docker compose ps` (incl.
+`rabbitmq`/`worker`/`scheduler` por profiles), estado de migraciones, `deps.sh due` y —por ser
+CMP un fork con remote `oliva-upstream`— `sync.sh check`. Ningún paso lo aborta, ni con Docker
+abajo. Si deps o sync avisan, mencionárselo a Marcos; no syncear ni correr el ciclo sin que lo pida.
+
+`deps.sh due` (dentro de `doctor`) reporta DOS cadencias: el ciclo de deps (frescura, ~45 días) y el **audit de CVEs**
 (seguridad, ~7 días → `scripts/oliva/deps.sh audit`: composer + yarn audit + Trivy sobre las
 imágenes base, la capa que composer/yarn audit no ven). Si el audit avisa que TOCA, correr
 `deps.sh audit` — un CVE no espera al ciclo. Ver `docs/oliva/actualizaciones.md` ("El aviso por advisory").
@@ -159,7 +158,7 @@ git status -s                      # sin archivos sin commitear (salvo intencion
 git log --oneline -3               # el último commit tiene hash real en agent-commits.md
 ```
 
-Y en `CLAUDE.md` asegurarse de que **"Próximo paso"** apunte al paso correcto para la sesión siguiente.
+Y en `AGENTS.md` asegurarse de que **"Próximo paso"** apunte al paso correcto para la sesión siguiente.
 
 ## Protocolo de explicaciones conceptuales
 
@@ -204,4 +203,4 @@ Cuando el usuario pide que se le explique un concepto (`"explicame X"`, `"enseñ
 
 ## Comandos del agente
 
-Ver `claude-commands.md` en la raíz del proyecto para los comandos que el usuario puede invocar en el chat (protocolos de reinicio de sesión, etc.).
+Ver `agent-commands.md` en la raíz del proyecto para los comandos que el usuario puede invocar en el chat (protocolos de reinicio de sesión, etc.).

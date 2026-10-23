@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Deploy de una app Oliva sobre infra compartida (down + build + up).
-# Reemplaza la tira de comandos manuales del runbook de CLAUDE.md.
+# Reemplaza la tira de comandos manuales del runbook de AGENTS.md.
 #
 # Uso:
 #   ./scripts/deploy.sh            # app_name = nombre del directorio actual (ej. en ~/ong → "ong")
@@ -54,4 +54,4 @@ echo ">> estado:"
 # La imagen que se acaba de reemplazar queda sin tag: sin esto, cada deploy suma ~750 MB.
 prune_build_leftovers
 
-echo ">> OK. Si la app usa cron, agregá '--profile cron' al up (ver CLAUDE.md)."
+echo ">> OK. Si la app usa cron, agregá '--profile cron' al up (ver AGENTS.md)."
