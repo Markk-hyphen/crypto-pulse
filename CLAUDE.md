@@ -37,7 +37,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 ## Estructura
 - `backend/` — Symfony con FrankenPHP (Doctrine ORM/Migrations, pgvector, Mercure, Messenger)
 - `frontend/` — Vite (Node), incluye demo de Mercure en vivo (`src/js/live.js`, sección "Live" de `index.html`)
-- `docs/concepts.md` — glosario técnico acumulativo (pgvector, RabbitMQ, AMQP, etc.)
+- `docs/concepts.md` — glosario técnico acumulativo (pgvector, RabbitMQ, AMQP, modelo de sync de forks, etc.)
+- `docs/qa-y-staging.md` — qué garantías ofrece el framework (verify.sh, los 3 jobs de CI, stack de staging, seeding) y qué NO cubre. Es el doc humano de lo que acá está desperdigado en runbooks
 - `docs/oliva/` — docs **del framework** que bajan a cada fork: `actualizaciones.md` (sistema de updates) y `UPGRADING.md` (notas por versión)
 - `scripts/oliva/` — herramientas de mantenimiento y sync (`deps.sh`, `sync.sh`, `verify.sh`, `release.sh`, `owned-paths.txt`)
 - `OLIVA_VERSION` — versión del framework sobre la que está el checkout
