@@ -15,6 +15,7 @@ APP_NAME="${1:-$(basename "$PWD")}"
 
 source "$(dirname "$0")/lib/project-guard.sh"
 source "$(dirname "$0")/lib/docker-prune.sh"
+source "$(dirname "$0")/lib/cron-guard.sh"
 assert_not_staging_name "$APP_NAME"
 assert_project_owned_here "$APP_NAME"
 
@@ -41,7 +42,8 @@ rm -rf docs/
 # detrás de un profile no se baja con `down` (profile inactivo) ni con
 # --remove-orphans (sigue definido en el YAML, no es huérfano real) → quedaría
 # corriendo stale. Activando el profile acá, el down sí lo apaga. El `up` de
-# abajo NO lleva el profile, así que el scheduler no se vuelve a levantar.
+# abajo usa los profiles del `.env` del host (COMPOSE_PROFILES): el scheduler
+# vuelve a levantar solo si la app declaró `cron` ahí.
 echo ">> down"
 COMPOSE_PROFILES=cron "${COMPOSE[@]}" down --remove-orphans
 
@@ -54,4 +56,6 @@ echo ">> estado:"
 # La imagen que se acaba de reemplazar queda sin tag: sin esto, cada deploy suma ~750 MB.
 prune_build_leftovers
 
-echo ">> OK. Si la app usa cron, agregá '--profile cron' al up (ver AGENTS.md)."
+warn_if_cron_inactive "${COMPOSE[@]}"
+
+echo ">> OK. Profiles opcionales (cron, queues): se activan con COMPOSE_PROFILES en el .env del host."

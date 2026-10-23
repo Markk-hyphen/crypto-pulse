@@ -53,7 +53,7 @@ Además de `database`, `backend` y `frontend`, `docker-compose.yml` define:
 | Servicio | Para qué | Si la app no lo necesita |
 |---|---|---|
 | `rabbitmq` | Broker para Symfony Messenger (colas `ingest`/`enrich` de ejemplo, comentadas) | Quitar el bloque `rabbitmq` y las dependencias `depends_on: rabbitmq` de `backend`/`scheduler`/`worker` |
-| `scheduler` | Ejecuta `supercronic` con `backend/scheduler/crontab` para tareas periódicas. **Opt-in:** vive tras el profile `cron`, no arranca por defecto (mismo criterio que `rabbitmq`/`queues`). El crontab base viene vacío. | Por defecto ya no corre. Una app que necesite cron activa el profile (`--profile cron` o listando `scheduler` en `up`) y llena `backend/scheduler/crontab`. Para eliminarlo del todo: quitar el bloque `scheduler` y `backend/scheduler/crontab` |
+| `scheduler` | Ejecuta `supercronic` con `backend/scheduler/crontab` para tareas periódicas. **Opt-in:** vive tras el profile `cron`, no arranca por defecto (mismo criterio que `rabbitmq`/`queues`). El crontab base viene vacío. | Por defecto ya no corre. Una app que necesite cron llena `backend/scheduler/crontab` y activa el profile con `COMPOSE_PROFILES=cron` en el `.env` (en prod, el `.env` **del host**: es lo que lee el `up` de `deploy.sh`). Si el crontab tiene tareas y el profile no está activo, `deploy.sh`/`deploy-staging.sh` lo avisan al final (`scripts/lib/cron-guard.sh`). Para eliminarlo del todo: quitar el bloque `scheduler` y `backend/scheduler/crontab` |
 | `worker` (en `docker-compose.override.yml`, dev) | Corre `bin/console messenger:consume` | Quitar el bloque `worker` si no hay mensajes async |
 
 La base de datos usa la imagen `pgvector/pgvector:pg${POSTGRES_VERSION}` — es un Postgres normal con la extensión `vector` compilada y una migración que la habilita (`CREATE EXTENSION IF NOT EXISTS vector`). No tiene costo si la app no usa tipos `vector`; no hace falta quitarla.
@@ -88,11 +88,6 @@ Varias apps Oliva conviven en el mismo host (en dev, tu máquina; en prod, el VP
 
 ### Deuda conocida: profiles en los scripts de deploy
 
-- `scripts/deploy.sh` termina diciendo "agregá `--profile cron` al up", pero el script es
-  OLIVA-owned: un fork no lo puede editar. El mecanismo real es `COMPOSE_PROFILES` en el `.env`
-  del host (Compose lo lee solo en el `up`). Un fork que necesita cron en prod (finanzas-ong:
-  auto-confirm de pagos + reintentos de notificaciones) lo pierde en silencio si su `.env` no lo
-  declara. Corregir el mensaje y documentarlo.
 - El `down` de `deploy.sh`/`deploy-staging.sh` corre con `COMPOSE_PROFILES=cron`, que
   **reemplaza** los profiles del `.env`: un servicio de otro profile (`queues`) queda fuera del
   `down` y sigue corriendo viejo. Candidato: `--profile '*'` en el `down`.
@@ -130,8 +125,8 @@ docker compose -p ong \
   -f docker-compose.yml -f docker-compose.prod.yml \
   -f docker-compose.shared-infra.yml up -d
 # (sin listar servicios: el profile inerte excluye database/rabbitmq y el
-#  profile `cron` excluye scheduler. Si la app necesita cron, agregar
-#  `--profile cron` y llenar backend/scheduler/crontab.)
+#  profile `cron` excluye scheduler. Si la app necesita cron, declarar
+#  COMPOSE_PROFILES=cron en el .env y llenar backend/scheduler/crontab.)
 ```
 
 Qué hace (requiere Docker Compose ≥ 2.24, por la tag de merge `!override`):
@@ -178,7 +173,9 @@ compartida. El código viene del `git pull`, pero estos NO (o requieren un valor
 > se hacen una sola vez por app), cada redeploy es solo:
 > `cd ~/<app> && ./scripts/deploy.sh` (toma el `app_name` del nombre del dir;
 > hace `down` antes del `up` para no dejar containers stale). Si la app usa
-> cron, editar el script o agregar `--profile cron`. Los pasos de abajo quedan
+> cron (o colas), declararlo en el `.env` del host: `COMPOSE_PROFILES=cron`
+> (o `queues,cron`) — el script no se edita; si el crontab tiene tareas y el
+> profile falta, avisa al final. Los pasos de abajo quedan
 > como referencia de qué hace cada cosa.
 
 1. **En el VPS, traer el código:** `cd ~/<app> && git pull` (trae el overlay y

@@ -5,6 +5,30 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.4.2 — sin publicar
+
+> Cron en prod: el scheduler se activa con `COMPOSE_PROFILES` en el `.env` del host, no
+> editando `deploy.sh`. Hasta acá el script le decía al fork "agregá `--profile cron` al up"
+> (un archivo OLIVA-owned que el fork no debe tocar), y una app con tareas en el crontab y sin
+> el profile declarado deployaba sin scheduler, sin ningún error.
+
+**Acción requerida en el fork**
+
+- Si el fork usa cron (tiene tareas en `backend/scheduler/crontab`): asegurar
+  `COMPOSE_PROFILES=cron` (o `queues,cron`) en el `.env` de cada host donde deploye, y
+  conviene dejarlo también en su `.env.example` para que un host nuevo lo herede. Si no
+  está, el próximo `deploy.sh` lo avisa al final con un bloque `!! CRON INACTIVO`.
+- Si el fork no usa cron: ninguna.
+
+**Qué cambió**
+
+- `scripts/lib/cron-guard.sh` (nuevo): `warn_if_cron_inactive`, le pregunta a Compose
+  (`config --services`) si el scheduler entra en el `up`; si no entra y el crontab tiene
+  tareas, imprime un aviso. No aborta el deploy.
+- `scripts/deploy.sh`, `scripts/deploy-staging.sh`: llaman al aviso al final; el mensaje
+  final de `deploy.sh` ya no pide editar el script.
+- `AGENTS.md`, `.env.example`: documentan `COMPOSE_PROFILES` del host como el mecanismo.
+
 ## 1.4.1 — 2026-10-23
 
 > Fix del extension point de PHP (`backend/php-extensions.txt`): con el driver buildx del CI
