@@ -64,10 +64,19 @@ RUN set -eux; \
 
 # Extra extensions of the APP (backend/php-extensions.txt belongs to the fork; Oliva ships
 # it empty). Lets a fork add e.g. bcmath without editing this file, which is Oliva's.
-COPY --link php-extensions.txt /tmp/php-extensions.txt
-# hadolint ignore=SC2086
-RUN set -eux; \
-	exts="$(grep -vE '^[[:space:]]*(#|$)' /tmp/php-extensions.txt || true)"; \
+# Dos sintaxis por línea:
+#   bcmath                       → bundled de PHP, por install-php-extensions (este RUN)
+#   phpredis/phpredis:6.2.0      → paquete PIE (lleva `/`), por el RUN de PIE de abajo
+# Una PECL con el formato viejo (`redis-6.2.0`) también funciona acá, pero baja de
+# pecl.php.net (en phase-out, la causa del `exit 100` de 1.1.2): preferir el nombre PIE.
+# El archivo entra con bind-mount, NO con `COPY --link ... /tmp/`: el `--link` le dejaba
+# /tmp en 755 con el driver buildx `docker-container` (el del CI; el driver `docker` local
+# no lo reproduce) y el sandbox `_apt` no podía escribir ahí → `exit 100` en todo fork con
+# extensiones. Además así el archivo no queda en la imagen.
+# hadolint ignore=DL4006,SC2086
+RUN --mount=type=bind,source=php-extensions.txt,target=/run/oliva/php-extensions.txt \
+	set -eux; \
+	exts="$(grep -vE '^[[:space:]]*(#|$)' /run/oliva/php-extensions.txt | grep -v / || true)"; \
 	if [ -n "$exts" ]; then install-php-extensions $exts; fi
 
 # amqp + apcu con PIE (php/pie). La imagen oficial de PIE se monta SOLO en build-time
@@ -80,14 +89,23 @@ RUN set -eux; \
 # `install-php-extensions` de arriba (incluido el del fork, ej. bcmath) necesitan gcc para
 # compilar. Si esta purga corriera antes, el bcmath del fork fallaría con `gcc: not found` (127).
 # Versiones pineadas exactas, igual que antes.
-# hadolint ignore=DL3008,SC2086
+# También instala los paquetes PIE del fork (líneas con `/` de php-extensions.txt). PIE no
+# instala libs de sistema: una extensión que las necesite va por el formato de
+# install-php-extensions (que sí las resuelve) o hay que pedirla en Oliva.
+# `-o APT::Sandbox::User=root`: defensa en profundidad — ya nada copia a /tmp, pero si un
+# COPY --link futuro volviera a dejarlo en 755, apt seguiría andando.
+# hadolint ignore=DL3008,DL4006,SC2086
 RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
+	--mount=type=bind,source=php-extensions.txt,target=/run/oliva/php-extensions.txt \
 	set -eux; \
 	export DEBIAN_FRONTEND=noninteractive; \
 	apt-get -o APT::Sandbox::User=root update; \
 	apt-get install -y --no-install-recommends $PHPIZE_DEPS librabbitmq-dev unzip; \
 	pie install --no-cache apcu/apcu:5.1.28; \
 	pie install --no-cache php-amqp/php-amqp:2.2.0; \
+	for p in $(grep -vE '^[[:space:]]*(#|$)' /run/oliva/php-extensions.txt | grep / || true); do \
+		pie install --no-cache "$p"; \
+	done; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS unzip; \
 	rm -rf /var/lib/apt/lists/*
 
@@ -144,10 +162,8 @@ RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
 # xdebug con PIE (php-ext-zend, pineado 3.5.3) — mismo motivo que amqp/apcu: fuera de pecl.php.net.
 # No necesita libs de sistema extra; solo el toolchain + unzip, que se purgan acá mismo.
-# `apt-get -o APT::Sandbox::User=root`: el `COPY --link php-extensions.txt /tmp/` del stage base
-# le saca el sticky 1777 a /tmp en algunos buildkit, y el sandbox `_apt` de apt no puede escribir
-# ahí (mkstemp /tmp Permission denied → `exit 100`). Como root no baja de privilegios. Es lo que
-# install-php-extensions hace por dentro; por eso el xdebug viejo nunca lo pegó.
+# `apt-get -o APT::Sandbox::User=root`: defensa en profundidad, mismo motivo que en el RUN de
+# PIE del stage base (un /tmp sin sticky 1777 rompe el sandbox `_apt` → `exit 100`).
 # hadolint ignore=DL3008,SC2086
 RUN --mount=type=bind,from=ghcr.io/php/pie:1.5.3-bin,source=/pie,target=/usr/local/bin/pie \
 	set -eux; \

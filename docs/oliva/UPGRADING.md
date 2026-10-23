@@ -5,6 +5,31 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.4.1 — 2026-10-23
+
+> Fix del extension point de PHP (`backend/php-extensions.txt`): con el driver buildx del CI
+> (`docker-container`) todo fork con extensiones fallaba con `exit 100`
+> (`mkstemp /tmp/apt.sig.* Permission denied`). finanzas-ong estaba rojo así desde 1.1.0.
+
+**Acción requerida en el fork**
+
+Ninguna obligatoria: el fix es transparente (baja con el `backend/Dockerfile`).
+
+- Opcional, si el fork tiene una PECL con el formato viejo (`redis-6.2.0`): pasarla al nombre
+  PIE (`phpredis/phpredis:6.2.0`) para no depender de pecl.php.net. El comentario de cabecera
+  de `php-extensions.txt` del fork quedó viejo (Oliva no toca ese archivo para no generarle
+  conflictos); la sintaxis vigente está en el comentario del extension point en `backend/Dockerfile`.
+- Después del push del sync, mirar que el CI del fork quede verde: `./oliva doctor` ahora lo muestra.
+
+**Qué cambió**
+
+- `backend/Dockerfile`: `php-extensions.txt` entra por bind-mount en vez de `COPY --link` a
+  `/tmp` (el `--link` dejaba `/tmp` en 755 con el driver del CI; el driver `docker` local no lo
+  reproduce). Líneas con `/` (`vendor/paquete:versión`) se instalan con PIE.
+- `scripts/oliva/verify.sh`: paso `[ci-build]`, rebuildea el backend con el driver del CI. Solo
+  corre si `php-extensions.txt` tiene extensiones; si no, se saltea solo.
+- `./oliva doctor`: muestra el último run del CI en `main` (solo si `gh` está instalado y logueado).
+
 ## 1.4.0 — 2026-10-23
 
 > Capa agéntica: entry point `./oliva` + migración de los docs agénticos a `AGENTS.md`

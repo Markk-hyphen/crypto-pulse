@@ -17,7 +17,12 @@
 #   [schema]      doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
 #   [phpunit]     suite completa
 #   [prod-build]  buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
+#   [ci-build]    rebuildea el backend con el driver buildx del CI (docker-container). SOLO
+#                 si backend/php-extensions.txt tiene extensiones: es el camino donde el
+#                 driver local y el del CI se comportan distinto (ej. /tmp en 755 → exit 100,
+#                 que en local pasaba verde). Sin extensiones se saltea solo, sin costo.
 #
+
 # Corre sobre la DB de dev (es la de siempre); no crea ni borra stacks.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -43,6 +48,16 @@ do_migrations() { be bin/console doctrine:migrations:up-to-date; }
 do_schema()     { be bin/console doctrine:schema:validate; }
 do_phpunit()    { be php vendor/bin/phpunit; }
 do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend; }
+
+# Builder `oliva-ci` (driver docker-container, como setup-buildx-action en el CI). Se crea
+# la primera vez; guarda su propia caché, así que solo el primer build es lento.
+# Sin --load: alcanza con que buildee, no hace falta pasar la imagen al daemon.
+fork_has_extensions() { grep -qvE '^[[:space:]]*(#|$)' backend/php-extensions.txt 2>/dev/null; }
+do_ci_build() {
+  docker buildx inspect oliva-ci >/dev/null 2>&1 \
+    || docker buildx create --name oliva-ci --driver docker-container >/dev/null
+  docker buildx build --builder oliva-ci --target frankenphp_dev -q backend >/dev/null
+}
 
 # Versión de PHP que CORRE en el backend vs. el pin de backend/Dockerfile.
 # Un build verde NO prueba que estés parcheado: si el `up` reusó un container vivo, sus
@@ -115,6 +130,8 @@ step migrations  do_migrations
 step schema      do_schema
 step phpunit     do_phpunit
 step prod-build  do_prod_build
+if fork_has_extensions; then step ci-build do_ci_build
+else RESULTS+=("SKIP  ci-build (php-extensions.txt vacío)"); fi
 
 echo
 echo "── verify: $(basename "$PWD") ──"
