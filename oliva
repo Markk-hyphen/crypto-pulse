@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# oliva — entry point único del framework. Dispatcher puro: envuelve los
+# scripts existentes en scripts/oliva/ y scripts/*.sh con nombres estables.
+# No inventa lógica propia (salvo `doctor`, ver abajo) ni agrupa comandos:
+# toda la inteligencia queda en los scripts. Ver docs/roadmap/epics/E-capa-agentica.md.
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+usage() {
+  cat <<'EOF'
+Uso: oliva <comando> [args...]
+
+Framework:
+  deps <due|report|update|audit|scan-images>   scripts/oliva/deps.sh
+  sync <check|start|locks|verify>              scripts/oliva/sync.sh
+  verify                                       scripts/oliva/verify.sh
+  release X.Y.Z                                scripts/oliva/release.sh
+
+Operación:
+  deploy                                       scripts/deploy.sh
+  deploy-staging                               scripts/deploy-staging.sh
+  down                                         scripts/down.sh
+  down-staging                                 scripts/down-staging.sh
+
+Diagnóstico:
+  doctor                                       chequeos de sanidad (read-only)
+  version                                      imprime OLIVA_VERSION
+  help                                         esta ayuda
+EOF
+}
+
+cmd="${1:-help}"
+[[ $# -gt 0 ]] && shift
+
+case "$cmd" in
+  deps)          exec scripts/oliva/deps.sh "$@" ;;
+  sync)          exec scripts/oliva/sync.sh "$@" ;;
+  verify)        exec scripts/oliva/verify.sh "$@" ;;
+  release)       exec scripts/oliva/release.sh "$@" ;;
+  deploy)        exec scripts/deploy.sh "$@" ;;
+  deploy-staging) exec scripts/deploy-staging.sh "$@" ;;
+  down)          exec scripts/down.sh "$@" ;;
+  down-staging)  exec scripts/down-staging.sh "$@" ;;
+  version)       cat OLIVA_VERSION ;;
+  help|-h|--help) usage ;;
+  doctor)
+    # Diagnóstico read-only: ningún paso puede matar al comando. Cada paso
+    # corre aislado y, si falla, informa y sigue (ver gotcha de `set -e` en
+    # el epic de la capa agéntica — doctor debe sobrevivir con Docker abajo).
+    step() {
+      local label="$1"; shift
+      echo
+      echo "── $label ──"
+      if "$@"; then return 0; else
+        echo "   (no disponible: salió $?)"
+        return 0
+      fi
+    }
+
+    step "rama" git branch --show-current
+    step "status" git status -s
+    step "log" git log --oneline -3
+    step "docker compose ps" docker compose ps
+    step "migraciones" docker compose exec backend bin/console doctrine:migrations:status
+    step "deps due" scripts/oliva/deps.sh due
+
+    if git remote get-url oliva-upstream >/dev/null 2>&1; then
+      step "sync check" scripts/oliva/sync.sh check
+    else
+      echo
+      echo "── sync check ──"
+      echo "   (omitido: no hay remote oliva-upstream — este no es un fork)"
+    fi
+    ;;
+  *)
+    echo "oliva: comando desconocido: $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac
