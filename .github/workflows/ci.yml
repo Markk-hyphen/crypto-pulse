@@ -6,6 +6,12 @@ on:
   push:
     branches:
       - main
+    # Los cambios SOLO-docs no corren el CI: no tocan build ni runtime. paths-ignore
+    # saltea un push únicamente si TODOS sus archivos matchean — un push que mezcle
+    # docs + código igual corre. workflow_dispatch siempre permite una corrida manual.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   workflow_dispatch: ~
 
 concurrency:
