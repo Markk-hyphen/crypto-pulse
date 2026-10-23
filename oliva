@@ -65,6 +65,29 @@ case "$cmd" in
     step "migraciones" docker compose exec backend bin/console doctrine:migrations:status
     step "deps due" scripts/oliva/deps.sh due
 
+    # Último run del CI en main. Un build puede pasar verde local y romper en el CI
+    # (caso real: finanzas-ong estuvo rojo 9 syncs seguidos sin que nada avisara).
+    # Opcional: sin `gh` instalado y logueado, se omite sin quejarse.
+    ci_status() {
+      local out
+      out="$(timeout 10 gh run list --branch main -L 1 \
+        --json conclusion,status,displayTitle,createdAt,databaseId \
+        --jq '.[0] | "\(.conclusion // .status)\t\(.createdAt[:10])\t\(.displayTitle)\t\(.databaseId)"')" || return 1
+      [[ -n "$out" ]] || { echo "   (sin runs en main)"; return 0; }
+      local concl date title id
+      IFS=$'\t' read -r concl date title id <<< "$out"
+      echo "   $concl  $date  $title"
+      [[ "$concl" == failure ]] && echo "   !! CI ROJO en main. Ver: gh run view $id --log-failed"
+      return 0
+    }
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      step "CI (último run en main)" ci_status
+    else
+      echo
+      echo "── CI (último run en main) ──"
+      echo "   (omitido: gh no está instalado o no está logueado)"
+    fi
+
     if git remote get-url oliva-upstream >/dev/null 2>&1; then
       step "sync check" scripts/oliva/sync.sh check
     else
