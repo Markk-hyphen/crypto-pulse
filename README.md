@@ -10,6 +10,7 @@ A reusable full-stack framework for building webapps — decoupled backend and f
 ![RabbitMQ](https://img.shields.io/badge/Queues-RabbitMQ-FF6600?style=flat-square&logo=rabbitmq&logoColor=white)
 ![Mercure](https://img.shields.io/badge/Realtime-Mercure-2EA3F2?style=flat-square)
 ![Docker](https://img.shields.io/badge/Infrastructure-Docker%20Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Security](https://img.shields.io/badge/Security-CVE%20audit%20%2B%20Trivy-2E7D32?style=flat-square&logo=letsencrypt&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 
 ---
@@ -17,6 +18,17 @@ A reusable full-stack framework for building webapps — decoupled backend and f
 ## What this is
 
 Oliva is the base every new project starts from: a backend, a frontend, a database, real-time messaging, async queues, and a cron-style scheduler — already wired together, already passing CI. New apps fork it and build features on top instead of re-solving infrastructure.
+
+## Staying patched
+
+A framework built on PHP, FrankenPHP and a stack of base images lives or dies by how fast it reacts to a CVE. Oliva's answer isn't "trust us, it's patched" — it's a workflow that makes *falling behind something you have to actively ignore*. It does not patch you automatically; it makes staying patched the default and makes an unpatched state loud.
+
+- **Security runs on its own clock, separate from freshness.** The routine dependency cycle (`deps.sh update`, ~45 days) is about staying current. A critical CVE doesn't wait for it. `deps.sh audit` runs **on demand**, and `deps.sh due` — a one-second offline check meant to run when you open a session — nags once it's been more than a week since the last audit. You don't go hunting for the news; the workflow surfaces it.
+- **Three layers audited, including the one `composer audit` can't see.** `composer audit` (PHP packages) + `yarn audit` (JS packages) + **[Trivy](https://trivy.dev/)** scanning the OS packages and binaries *inside* the base images — which is exactly where a runtime-level PHP or libc CVE lives. One source per layer, never stacked. Trivy is version-pinned and run as a container (no trust in a floating action tag — a compromised tag is itself a documented supply-chain failure mode, so the version is pinned and audited like any other image).
+- **`verify` proves the *running* PHP is the patched one.** Rebuilding with a fixed image isn't the same as serving it: a reused worker can keep running the old binary, and that gap is the classic way a PHP CVE "fix" quietly doesn't take effect. `verify.sh` fails if the PHP the backend actually serves doesn't match the exact version pinned in the Dockerfile — closing the loop that's easiest to skip under pressure and leaves no trace.
+- **Every fork inherits all of it for free.** `deps.sh audit` runs identically in Oliva and in every app built on it, so when a CVE lands you audit the whole fleet with one command instead of per-repo archaeology. The CI runs the Trivy scan on every build (opt-out per fork).
+
+The mechanics and the per-layer reasoning live under [Staying up to date](#staying-up-to-date-forks) and in [`docs/oliva/actualizaciones.md`](docs/oliva/actualizaciones.md).
 
 ## Stack
 
