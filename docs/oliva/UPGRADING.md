@@ -5,6 +5,58 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.4.0 — 2026-10-23
+
+> Capa agéntica: entry point `./oliva` + migración de los docs agénticos a `AGENTS.md`
+> (formato abierto, vendor-neutral). Los dos ejes van juntos porque ambos tocan el mismo
+> archivo SHARED (`CLAUDE.md` → `AGENTS.md`): hacerlo en dos releases sería pagar el mismo
+> conflicto dos veces. Detalle completo: `docs/roadmap/epics/E-capa-agentica.md`.
+
+**Acción requerida en el fork**
+
+1. **Antes de resolver el merge**, en el fork (para que git vea el rename en ambos lados
+   y mergee el contenido en vez de tratarlo como borrado + archivo nuevo):
+   ```bash
+   git mv CLAUDE.md AGENTS.md
+   git mv claude-commands.md agent-commands.md
+   git commit -m "chore: renombrar docs agénticos antes del sync de Oliva 1.4.0"
+   ```
+2. **Sync.** Baja `./oliva` (CLI, nuevo — entra a `scripts/oliva/owned-paths.txt` como
+   OLIVA-owned), el `CLAUDE.md` nuevo (ahora es el stub de una línea `@AGENTS.md` — también
+   OLIVA-owned, nunca se vuelve a editar) y los cambios de `AGENTS.md`/`agent-commands.md`
+   (SHARED → resolver a mano, igual que siempre). El `agent-commands.md` de Oliva declara el
+   prefijo de los comandos de chat una sola vez arriba; si el fork usa un prefijo distinto de
+   `claude`, es la única línea a tocar.
+3. **Después del merge:**
+   ```bash
+   mv rules-claude.md AGENTS.local.md
+   ```
+   (está gitignored → no viene en el merge, no genera conflicto; actualizar también la línea
+   en `.gitignore` si el fork la tiene copiada en vez de heredada).
+4. **Chequeos de inicio de sesión.** Si el fork tenía el bloque de 7 comandos pegado en su
+   propio `AGENTS.md` (heredado de antes de esta versión), reemplazarlo por `./oliva doctor`.
+5. **Verificar en la sesión siguiente** (gate de carga efectiva — es un fallo mudo si no se
+   chequea): abrir sesión nueva en el repo, correr `/context` y confirmar que `AGENTS.md`
+   aparece bajo "Memory files". Si no aparece, el agente dejó de leer la guía operativa y
+   nadie se entera sin este chequeo.
+
+**Qué cambió**
+
+- **`./oliva`** (nuevo): dispatcher puro sobre `scripts/oliva/*.sh` y `scripts/*.sh`, con
+  `exec` para propagar argumentos/exit codes verbatim. `oliva doctor` colapsa los 7 chequeos
+  de sanidad en una llamada read-only (ningún paso lo aborta, ni con Docker abajo).
+- **`AGENTS.md`** (antes `CLAUDE.md`) y **`agent-commands.md`** (antes `claude-commands.md`):
+  mismo contenido, renombrados vía `git mv` para que el merge en forks sea limpio. Formato
+  abierto, lo leen Claude Code, Codex, Cursor, Gemini CLI, Copilot, Aider, Zed y otros.
+- **`CLAUDE.md`** (nuevo, stub OLIVA-owned): una línea, `@AGENTS.md` — import de Claude Code.
+  Necesario porque Claude Code lee `AGENTS.md` nativo solo si no hay `CLAUDE.md` ni
+  `CLAUDE.local.md` en el cwd ni en ningún directorio por encima; sin el stub, un `CLAUDE.md`
+  de más arriba en el filesystem tapa la guía del repo en silencio.
+- **`rules-claude.md` → `AGENTS.local.md`**: mismo mecanismo (gitignored, lectura explícita),
+  solo cambia el nombre.
+- `scripts/oliva/owned-paths.txt`: `oliva` y `CLAUDE.md` (stub) pasan a OLIVA-owned; la nota
+  SHARED ahora dice `AGENTS.md`/`agent-commands.md`.
+
 ## 1.3.0 — 2026-10-22
 
 > Feature: "el aviso por advisory". Chequeo de CVEs fuera del ciclo de 45 días, y una
