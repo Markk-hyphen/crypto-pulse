@@ -227,11 +227,20 @@ there is no advance warning.
 ### In Oliva: ship a version
 
 ```bash
-scripts/oliva/deps.sh due      # is it time for a maintenance cycle?
+scripts/oliva/deps.sh due      # time for a maintenance cycle (~45d)? for a security audit (~7d)?
 scripts/oliva/deps.sh report   # EOL, images, composer, yarn, actions, CVEs
 scripts/oliva/deps.sh update   # bump within ranges + verify + commit
+scripts/oliva/deps.sh audit    # CVE audit across all three layers (composer + yarn + container images)
 scripts/oliva/release.sh X.Y.Z # tag a release
 ```
+
+**Security runs on its own clock.** The 45-day cycle is about *freshness*; a critical CVE
+isn't. `deps.sh audit` — runnable in Oliva *and in every fork* — checks the three dependency
+layers for known CVEs with a published fix, and `deps.sh due` nags once it's been more than a
+week. The point of it is the layer `composer audit` / `yarn audit` can't see: the OS packages
+and binaries *inside* the base images (scanned with Trivy). It's not runtime protection — it
+tells you when something you've pinned has a fix waiting. One source per layer, not stacked:
+the why is in [`docs/oliva/actualizaciones.md`](docs/oliva/actualizaciones.md).
 
 ### File ownership
 
