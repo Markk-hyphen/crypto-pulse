@@ -30,7 +30,7 @@ Tres principios, cada uno sale de un incidente real:
    lista corta y conocida. Los conflictos de sync salen casi todos de archivos con dos dueños.
 3. **El recordatorio vive en el flujo, no en la memoria.** La memoria del agente es por repo:
    no sirve para avisarle a un fork que Oliva avanzó. Por eso `check`/`due` van en los chequeos
-   de inicio de sesión del `CLAUDE.md` de cada proyecto.
+   de inicio de sesión del `AGENTS.md` de cada proyecto.
 
 ## Lado Oliva: el ciclo de mantenimiento (cada ~45 días)
 
@@ -108,7 +108,7 @@ ya mergeó Oliva ≥ 1.1.0 al menos una vez (ese primer merge trae los scripts; 
    `chore/oliva-sync-<versión>`, mergea y **clasifica cada conflicto**:
    - `[OLIVA]`: archivo del framework (`owned-paths.txt`) → tomar el de Oliva (`git checkout --theirs`).
    - `[LOCK]`: `composer.lock`/`yarn.lock` → no tocar a mano, lo resuelve `locks`.
-   - `[MANUAL]`: archivo compartido (`CLAUDE.md`, override, `config/**`…) → combinar.
+   - `[MANUAL]`: archivo compartido (`AGENTS.md`, override, `config/**`…) → combinar.
 
    También lista el **drift**: archivos de Oliva que el fork editó desde el último sync. Cada uno
    es un conflicto futuro asegurado: o se documenta por qué, o se devuelve a Oliva.
@@ -129,14 +129,14 @@ cualquier app** (caso real: `trusted_proxies` en `frontend/Caddyfile` de finanza
 throttling de login vea la IP real detrás del reverse-proxy compartido), no se documenta como
 excepción: se lleva a Oliva (commit propio, citando el hash del fork) y baja a todos en el
 próximo sync. Al llegar, el archivo queda idéntico en el fork y el drift desaparece solo.
-Si el cambio es específico del fork, se documenta en su `CLAUDE.md` y se asume el conflicto.
+Si el cambio es específico del fork, se documenta en su `AGENTS.md` y se asume el conflicto.
 
 ## Propiedad de archivos (`scripts/oliva/owned-paths.txt`)
 
 | Dueño | Qué | En un sync |
 |---|---|---|
 | **Oliva** | Dockerfiles, `backend/frankenphp/`, los 4 compose salvo el override, `scripts/` de deploy y `scripts/oliva/`, CI, `docs/oliva/`, `OLIVA_VERSION` | Gana Oliva. Si un fork necesita otra cosa, se agrega a Oliva como opción (env var, profile) y baja a todos. |
-| **Compartido** | `docker-compose.override.yml`, `composer.json`, `package.json`, `config/**`, `.env.example`, `.env.backend`, `.gitignore`, `CLAUDE.md`, `README.md`, `claude-commands.md` | Se combina a mano; `rerere` lo aprende. |
+| **Compartido** | `docker-compose.override.yml`, `composer.json`, `package.json`, `config/**`, `.env.example`, `.env.backend`, `.gitignore`, `AGENTS.md`, `README.md`, `agent-commands.md` | Se combina a mano; `rerere` lo aprende. |
 | **Log del proyecto** | `agent-commits.md`, `commits.md` | Gana el del fork (`git checkout --ours`): Oliva registra lo suyo en su propio archivo. |
 | **Locks** | `composer.lock`, `yarn.lock` | `sync.sh locks`. `symfony.lock`: unión a mano (raro). |
 | **Fork** | `src/`, `migrations/`, `tests/`, `docs/` (salvo `docs/oliva/`), `backend/php-extensions.txt`, todo lo demás | Oliva no los toca. |

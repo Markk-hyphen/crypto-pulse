@@ -5,7 +5,7 @@
 frontend/dist/
 frontend/src/.vite/
 secrets/
-rules-claude.md
+AGENTS.local.md
 # Estado local de scripts/oliva (por-repo, no se versiona): fecha del último `deps.sh audit`.
 .oliva/
 
