@@ -1,4 +1,4 @@
-FROM node:20-slim AS base
+FROM node:24-slim AS base
 WORKDIR /usr/src/app
 RUN command -v yarn || npm install --global yarn
 # yarn.lock versionado + --frozen-lockfile: el build instala EXACTAMENTE lo
