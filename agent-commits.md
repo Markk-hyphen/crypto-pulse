@@ -408,3 +408,33 @@ Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
 
 **Fuera del repo pero parte del trabajo:** `/home/marcos/CLAUDE.md` (spec de `claude new project`) se actualizó a la convención nueva en una sesión posterior — no se versiona (no es repo). La **Fase 4** (sync de forks a 1.4.0) queda pendiente, explícitamente no-mecánica, una sesión por fork.
 
+
+## [1.4.1] fix: extension point de PHP por bind-mount — el CI rojo de finanzas-ong desde 1.1.0
+**Commits:** `324c448` fix(backend) · `9e627c5` feat(verify) · `e05bf71` feat(doctor) · `db18c2a` docs(agents) · `e73607d` docs(upgrading) · `f9930cf` release
+**Rama:** `main`
+**Fecha:** 2026-10-23
+**Origen:** diagnóstico `/home/marcos/diagnose.md` + auditoría de "puntos sensibles para forks" pedida por Marcos. Release `v1.4.1`.
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/Dockerfile` | modificado | `php-extensions.txt` entra por `RUN --mount=type=bind` en vez de `COPY --link ... /tmp/`. Líneas con `/` (`vendor/paquete:versión`) se instalan con PIE dentro del RUN de PIE. `APT::Sandbox::User=root` queda como defensa en profundidad. `DL4006` silenciado en los dos RUN con pipe. |
+| `scripts/oliva/verify.sh` | modificado | Paso `[ci-build]`: rebuild del backend con un builder `docker-container` (`oliva-ci`). Solo si `php-extensions.txt` tiene extensiones. |
+| `oliva` | modificado | `doctor` muestra el último run del CI en `main` (solo con `gh` instalado y logueado; timeout de 10 s). |
+| `AGENTS.md` | modificado | Deuda: worker en prod (ya no es teórica), profiles en deploy, constraints sin techo. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección `## 1.4.1`. |
+| `OLIVA_VERSION` | modificado | `1.4.0` → `1.4.1`. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**Tres versiones apuntaron a la causa equivocada.** Los 9 runs rojos de finanzas-ong (sync 1.1.2 → 1.4.0) tienen el mismo error, `mkstemp /tmp/apt.sig.* Permission denied`, desde el primer push con el extension point. 1.1.2–1.1.4 (PECL→PIE) arreglaron problemas reales, pero no este: se validaron en Oliva y crypto-pulse, con `php-extensions.txt` vacío, donde el RUN del fork es no-op.
+
+**La causa no es "el buildkit del CI" en general, es el driver.** `COPY --link` a un directorio existente deja `/tmp` en 755 con el driver buildx `docker-container` (el de `setup-buildx-action`, buildkit v0.33); con el driver `docker` local (buildkit v0.23) queda en 1777. Reproducido con un Dockerfile de 3 líneas. Por eso "local verde, CI rojo" y por eso `verify.sh` no lo podía ver.
+
+**Por qué bind-mount y no las opciones del diagnóstico:** (A) apt global como root parchea el síntoma y deja /tmp roto para cualquier otra herramienta; (C) `chmod 1777` es igual de local. El bind-mount no crea capa, así que no hay nada que rompa /tmp, y de paso el archivo no queda en la imagen.
+
+**Por qué `[ci-build]` es condicional:** Marcos pidió que el framework siga sirviendo para desarrollos simples. El driver local y el del CI difieren justo en el camino del extension point, así que el paso solo corre cuando el fork lo usa; sin extensiones cuesta cero. Verificado que sobre finanzas-ong sin fix **falla** (antes, verde).
+
+**Sintaxis PIE en el extension point:** el comentario del archivo invitaba a `redis-6.2.0`, que sigue bajando de pecl.php.net — la dependencia que Oliva abandonó en 1.1.2. No se cambió el `php-extensions.txt` de Oliva: es del fork, y editar su cabecera le generaría conflicto a todo fork que haya agregado líneas.
+
+**Descartado con pruebas** (para no reabrirlo): la purga `--auto-remove` del RUN de PIE no borra libs de runtime (gd/gmp andan); con pecl.php.net caído, las extensiones bundled instalan igual (el `Updating channel` falla y sigue).
