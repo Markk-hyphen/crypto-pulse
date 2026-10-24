@@ -29,6 +29,36 @@ mandatory). The rest of the roadmap is the same line, taken further.
 
 ---
 
+## Guiding principle: no silent failures — catch, don't scorn
+
+Oliva is meant to be safe for whoever is at the keyboard, including people who
+build by prompting an agent and don't yet have the mental model to suspect what
+*doesn't* fail. Most of the industry answers that with contempt. Oliva's stance is
+the opposite: the inattention is real and inevitable, and catching it serves
+better than attacking it. Vibe coders are included here on purpose.
+
+What that means in practice is a design rule, not a feature list:
+
+- **A failure that makes no noise is a bug in Oliva**, not in whoever triggered
+  it. A scheduler that never starts, a container that outlives its deploy, a
+  dependency that silently jumps a major or silently stays behind: none of these
+  raised an error before 1.4.2, and every one of them is now loud.
+- **The warning has to reach the agent.** In practice the "vibe coder" at the
+  keyboard *is* an agent reading `AGENTS.md` and script output. That is the
+  reader that never scrolls past a line, so guards live where the agent acts:
+  in the scripts it runs and in CI, with a message that names the fix.
+- **Loud locally, blocking in CI where possible.** A warning protects only
+  someone who reads it. A red CI protects everyone.
+- **Zero cost when it doesn't apply.** Oliva still has to serve a simple app. A
+  guard for a feature the app doesn't use (an empty crontab, no PHP extensions)
+  must do nothing at all.
+
+This doesn't replace care: the serious failures still get caught by someone
+reading every line and asking for a hard recheck at the sensitive points. It is
+the net underneath, for the times nobody is looking.
+
+---
+
 ## 1. Friction-driven optimization
 
 Stop guessing at weak points; find them by use. The method: **bootstrap a fresh
