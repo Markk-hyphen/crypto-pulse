@@ -404,3 +404,92 @@ no tenerlo es el hueco de arriba — nadie avisa, hay que preguntar.
 El punto intermedio, que no está hecho: Oliva no puede *pushear código*, pero sí podría
 *avisar* (una GitHub Action en Oliva que al taggear abra un issue en cada fork, o los forks
 suscritos a las releases del repo). Eso daría la notificación sin tocar el modelo pull.
+
+---
+
+## Worker mode de FrankenPHP
+
+### El problema que resuelve: PHP arranca de cero en cada request
+
+PHP clásico (FPM, CGI, mod_php, o el modo clásico de FrankenPHP) es *share-nothing*: cada
+request ejecuta `public/index.php` desde cero y al terminar se tira todo. En Symfony eso es,
+por request: cargar el autoloader de composer, construir el `Kernel`, levantar el container
+de servicios (desde caché, pero igual hay que instanciarlo), abrir la conexión a la DB,
+atender el request, y destruir todo. OPcache ahorra la *compilación* del código, no este
+*boot*: la app se reconstruye en memoria cada vez.
+
+```
+Clásico:   request → [boot kernel → container → conexión DB → handle → teardown]  (×N)
+Worker:    arranque → [boot kernel → container → conexión DB]  (1 vez)
+           request  → [handle → reset]  (×N, sobre la app ya caliente)
+```
+
+### Qué hace el worker mode
+
+FrankenPHP arranca un pool de procesos/hilos PHP que **cargan la app una sola vez** y se
+quedan vivos en un loop esperando requests (`frankenphp_handle_request()`). Con Symfony, el
+loop lo pone `runtime/frankenphp-symfony` (el `APP_RUNTIME` de `worker.Caddyfile`): bootea
+el kernel una vez y, por cada request, lo despacha y después llama a `terminate()` + resetea
+los servicios marcados como reseteables (`ResetInterface`, el `services_resetter` de Symfony:
+el EntityManager de Doctrine, loggers con buffer, etc.). Por defecto FrankenPHP levanta
+~2 workers por CPU (configurable con `num` en la directiva `worker`).
+
+### Beneficios
+
+- **Latencia:** el boot de la app sale del camino de cada request. Es el grueso del tiempo
+  en endpoints livianos (un `/health`, un GET de API simple), donde la lógica de negocio es
+  poca y el boot es casi todo.
+- **Throughput y CPU:** el mismo hardware atiende más requests porque no recalcula lo mismo
+  N veces. En un VPS chico con varias apps (el caso de Oliva) es CPU que queda libre.
+- **Conexiones persistentes:** la conexión a Postgres (y a RabbitMQ, Redis…) se abre una vez
+  por worker y se reusa, en vez de un handshake TCP + auth por request.
+- **Estado caliente en memoria:** caches en memoria del proceso, objetos ya construidos,
+  config parseada: todo sobrevive entre requests.
+
+### Costos y riesgos (la contracara de "sobrevive entre requests")
+
+- **Fuga de estado entre requests.** Lo que hace rápido al worker es lo mismo que lo hace
+  peligroso: si un servicio guarda algo del request A (una propiedad, una variable
+  `static`, un singleton casero) y no se resetea, el request B lo ve. Puede ser un bug
+  (datos del usuario anterior) o un CVE: el CVE-2026-109619 de PHP2Shell y la
+  GHSA-4gfw-9v29-gp9h de FrankenPHP 1.13.2 son exactamente esa clase (estado de un request
+  reusado en el siguiente, fragmentos del input de otro cliente vía `error_get_last()`).
+  Regla: servicios sin estado, o con estado que implemente `ResetInterface`.
+- **Memory leaks acumulativos.** En clásico, un leak muere con el request; en worker crece
+  hasta que el proceso se recicla. Mitigación: reiniciar el worker cada N requests
+  (`FRANKENPHP_LOOP_MAX` del runtime de Symfony) y vigilar memoria.
+- **Conexiones que se mueren.** Una conexión de DB abierta horas puede caerse (timeout del
+  server, restart de Postgres); el worker tiene que detectarlo y reconectar en vez de fallar.
+- **El código no se recarga solo.** Cambiar un archivo no afecta a un worker ya booteado:
+  hay que reiniciarlo. Por eso en dev conviene clásico (o worker con `watch`).
+- **EntityManager cerrado.** Una excepción de Doctrine cierra el EntityManager; sin el reset
+  entre requests, todos los siguientes del mismo worker fallarían.
+
+### Cómo está (y cómo debería estar) en Oliva
+
+- **Dev:** clásico a propósito (`ENV FRANKENPHP_CONFIG=""` en `frankenphp_dev`): hot-reload
+  sin reiniciar workers.
+- **Prod:** la intención es worker — `frankenphp_prod` setea
+  `FRANKENPHP_CONFIG="import worker.Caddyfile"` y el `Caddyfile` lo inyecta en el bloque
+  global `frankenphp { {$FRANKENPHP_CONFIG} }`.
+- **⚠️ Hallazgo 2026-10-23:** en la práctica prod corre **clásico**. `backend` carga
+  `env_file: .env`, y `.env.example` trae `FRANKENPHP_CONFIG=` vacío: una variable de
+  `env_file` pisa el `ENV` de la imagen aunque esté vacía (es literalmente la forma que el
+  template original documenta para *desactivar* el worker, `backend/docs/production.md`).
+  `docker compose -f docker-compose.yml -f docker-compose.prod.yml config backend` lo
+  muestra: `FRANKENPHP_CONFIG: ""`. Silent failure: todo arranca y `/health` da ok. Fix
+  pendiente (1.4.3).
+
+### No confundir con el `worker` de Messenger
+
+Son dos cosas que comparten nombre:
+
+| | Worker mode de FrankenPHP | Servicio `worker` (Messenger) |
+|---|---|---|
+| Qué es | Modo de ejecución del **servidor HTTP** | Un **container aparte** que corre `bin/console messenger:consume` |
+| Qué procesa | Requests HTTP | Mensajes de las colas de RabbitMQ |
+| Dónde se configura | `FRANKENPHP_CONFIG` / `worker.Caddyfile` | `docker-compose.override.yml` (dev); falta en prod (deuda #6) |
+
+Lo que sí comparten es el modelo: los dos son procesos PHP de larga vida, así que los dos
+sufren los mismos riesgos de fuga de estado, leaks y conexiones muertas (por eso
+`messenger:consume` también tiene `--limit`, `--memory-limit` y `--time-limit`).
