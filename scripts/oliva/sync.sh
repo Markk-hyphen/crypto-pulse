@@ -6,14 +6,20 @@
 #   scripts/oliva/sync.sh start [ref]    # rama chore/oliva-sync-<versión>, merge de Oliva, clasifica conflictos
 #   scripts/oliva/sync.sh locks          # regenera composer.lock / yarn.lock (durante o después del merge)
 #   scripts/oliva/sync.sh verify         # = scripts/oliva/verify.sh (respeta OLIVA_VERIFY_SKIP)
+#   scripts/oliva/sync.sh pending        # acciones de upgrade pendientes en esta máquina (lo usa doctor)
+#   scripts/oliva/sync.sh ack            # da por hechas EN ESTA MÁQUINA las acciones de upgrade
+#                                        # pendientes (las que muestran doctor y deploy.sh)
 #
 # Flujo completo: check → start → (resolver conflictos) → locks → git commit → verify
 #                 → git switch main && git merge --no-ff chore/oliva-sync-… (flujo solo-dev, sin PR)
+#                 → hacer las acciones [local]/[decisión] que muestra doctor → ack
+# Las [host] se reconocen en cada host (deploy.sh las muestra allá). Ver lib/upgrade-guards.sh.
 #
 # El remote de Oliva se llama `oliva-upstream` (OLIVA_REMOTE para cambiarlo). Si no
 # existe, `check`/`start` dicen cómo agregarlo.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib/upgrade-guards.sh"
 require_repo_root
 
 UP="${OLIVA_REMOTE}/main"
@@ -89,6 +95,10 @@ cmd_start() {
   if [[ -n "$notes" ]]; then
     echo; echo "── Notas de upgrade (leer ANTES de resolver) ──"; echo "$notes"; echo
   fi
+
+  # Antes del merge: si este checkout no tiene estado de acciones de upgrade, se siembra con
+  # la versión de antes del sync, así lo que trae el merge queda pendiente en `doctor`.
+  seed_acked_version
 
   if git merge --no-ff --no-edit -m "merge: sync Oliva ${theirs} into $(basename "$PWD")" "$ref"; then
     info "merge LIMPIO."
@@ -213,5 +223,10 @@ case "${1:-}" in
   start)  shift; cmd_start "$@" ;;
   locks)  cmd_locks ;;
   verify) exec "$(dirname "$0")/verify.sh" ;;
-  *) sed -n '3,14p' "$0"; exit 1 ;;
+  ack)    ack_upgrade_actions ;;
+  pending)
+    show_pending_upgrade_actions "local host decisión" \
+      && echo "   ninguna (reconocidas hasta Oliva $(oliva_acked_version))"
+    exit 0 ;;
+  *) sed -n '3,19p' "$0"; exit 1 ;;
 esac

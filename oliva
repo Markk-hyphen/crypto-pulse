@@ -13,7 +13,8 @@ Uso: oliva <comando> [args...]
 
 Framework:
   deps <due|report|update|audit|scan-images>   scripts/oliva/deps.sh
-  sync <check|start|locks|verify>              scripts/oliva/sync.sh
+  sync <check|start|locks|verify|pending|ack>  scripts/oliva/sync.sh
+  ack                                          = sync ack (acciones de upgrade hechas en esta máquina)
   verify                                       scripts/oliva/verify.sh
   release X.Y.Z                                scripts/oliva/release.sh
 
@@ -36,6 +37,7 @@ cmd="${1:-help}"
 case "$cmd" in
   deps)          exec scripts/oliva/deps.sh "$@" ;;
   sync)          exec scripts/oliva/sync.sh "$@" ;;
+  ack)           exec scripts/oliva/sync.sh ack ;;
   verify)        exec scripts/oliva/verify.sh "$@" ;;
   release)       exec scripts/oliva/release.sh "$@" ;;
   deploy)        exec scripts/deploy.sh "$@" ;;
@@ -64,6 +66,9 @@ case "$cmd" in
     step "docker compose ps" docker compose ps
     step "migraciones" docker compose exec backend bin/console doctrine:migrations:status
     step "deps due" scripts/oliva/deps.sh due
+    # Acciones de UPGRADING.md sin guard que esta máquina no reconoció (./oliva ack).
+    # Después de un sync es lo único que sigue mostrándolas: check ya da "al día".
+    step "acciones de upgrade" scripts/oliva/sync.sh pending
 
     # Último run del CI en main. Un build puede pasar verde local y romper en el CI
     # (caso real: finanzas-ong estuvo rojo 9 syncs seguidos sin que nada avisara).

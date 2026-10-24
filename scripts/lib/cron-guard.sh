@@ -9,7 +9,8 @@
 # Pregunta a Compose (`config --services`) en vez de parsear el `.env` a mano: así respeta
 # exactamente lo que va a hacer el `up` (`.env`, COMPOSE_PROFILES exportada, overlays).
 #
-# Uso: warn_if_cron_inactive "${COMPOSE[@]}"
+# Uso: warn_if_cron_inactive "${COMPOSE[@]}"  → 1 si avisó. Los deploys lo llaman vía
+# run_upgrade_guards (lib/upgrade-guards.sh), que nunca aborta.
 
 warn_if_cron_inactive() {
   local crontab="backend/scheduler/crontab"
@@ -38,4 +39,5 @@ warn_if_cron_inactive() {
 !! ================================================================
 
 EOF
+  return 1
 }

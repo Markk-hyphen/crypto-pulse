@@ -51,7 +51,8 @@ commit `chore(deps)`. Cuando toca:
 3. **A mano, un commit por salto** (lo que el report marcó ⛔/⇑/↑ en imágenes): editar el
    `FROM`/`image:`/constraint, `scripts/oliva/verify.sh`, commit `chore(deps): …`. Nunca dos
    saltos grandes juntos: si algo se rompe, tiene que quedar claro cuál fue.
-4. Mergear la rama a `main` local, escribir la sección en `docs/oliva/UPGRADING.md` y
+4. Mergear la rama a `main` local, escribir la sección en `docs/oliva/UPGRADING.md` (con las
+   acciones etiquetadas, ver "Acciones de upgrade" abajo) y
    **`scripts/oliva/release.sh X.Y.Z`** (patch = solo deps; minor = features o pasos para forks;
    major = rompe algo que el fork tiene que reescribir). `git push origin main vX.Y.Z`.
 
@@ -134,6 +135,28 @@ ya mergeó Oliva ≥ 1.1.0 al menos una vez (ese primer merge trae los scripts; 
    se regenera contra el `package.json` del fork.
 4. `git add -A && git commit --no-edit` → **`scripts/oliva/sync.sh verify`** → si pasa,
    `git switch main && git merge --no-ff chore/oliva-sync-…`. Push y deploy, como siempre.
+5. **Acciones de upgrade que quedan** (desde 1.5.0). Después del merge `check` ya dice "al
+   día" y las notas no vuelven a aparecer; lo que sigue pendiente lo muestra `./oliva doctor`
+   ("acciones de upgrade") en el checkout de desarrollo, y `deploy*.sh` en cada host (las
+   `[host]`). Se hacen y se reconocen **en cada máquina** con `./oliva ack`
+   (`.oliva/acked-version`, gitignored). Los ítems con guard no se reconocen: el guard avisa en
+   `verify`/`deploy` mientras el estado esté mal (`scripts/lib/upgrade-guards.sh`).
+
+### Acciones de upgrade: por qué no alcanza con escribirlas
+
+Las notas de `UPGRADING.md` se veían en un solo momento (antes del merge) y las lee casi
+siempre un agente en medio de un sync. Lo que se hace en esa sesión se cumple; lo que se hace
+después o en otra máquina (el `.env` del VPS, al deployar días más tarde) se perdía: en
+finanzas-ong, los pendientes de host de 1.4.2 y 1.4.3 solo sobrevivieron porque el agente los
+anotó en su memoria. El aviso no puede depender de que alguien se acuerde: lo da la tooling que
+igual se corre (`verify`, `deploy`, `doctor`), y lo que no se puede chequear sigue apareciendo
+hasta un `ack` explícito.
+
+Por eso cada acción lleva etiqueta de lugar (`merge`/`local`/`host`/`decisión`) y, si se puede,
+`guard: <id>` (formato en la cabecera de `UPGRADING.md`; `release.sh` lo valida). Al escribir
+un release, el orden de preferencia es: que el cambio no le pida nada al fork > guard >
+etiqueta sin guard > texto suelto. Casi todo lo "manual" es estado que vive donde git no llega,
+y eso se puede chequear donde vive. Un guard **solo avisa**, nunca aborta un deploy.
 
 **Por qué merge y no rebase ni cherry-pick:** el merge preserva los hashes que registra
 `agent-commits.md`, deja un punto de sync explícito en la historia y hace que el próximo merge
