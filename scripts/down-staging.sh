@@ -27,6 +27,7 @@ COMPOSE=(docker compose -p "$STAGING_PROJECT"
   -f docker-compose.staging.yml)
 
 echo ">> down de '$STAGING_PROJECT' desde $PWD"
-COMPOSE_PROFILES=cron "${COMPOSE[@]}" down --remove-orphans
+# --profile '*': mismo motivo que en deploy.sh (bajar todos los servicios con profile).
+"${COMPOSE[@]}" --profile '*' down --remove-orphans
 
 echo ">> OK, servicios de '$STAGING_PROJECT' abajo (volúmenes intactos)."

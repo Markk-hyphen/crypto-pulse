@@ -72,7 +72,12 @@ Your server is up and running, and a HTTPS certificate has been automatically ge
 Go to `https://your-domain-name.example.com` and enjoy!
 
 > [!NOTE]
-> The worker mode of FrankenPHP is enabled by default in prod. To disable it, add the env var FRANKENPHP_CONFIG as empty to the compose.prod.yaml file.
+> The worker mode of FrankenPHP is enabled by default in prod: the `frankenphp_prod` image bakes
+> `FRANKENPHP_CONFIG=import worker.Caddyfile`. To disable it (run classic), add `FRANKENPHP_CONFIG=`
+> empty to the `environment:` of the `backend` service in `docker-compose.prod.yml` — a deliberate,
+> per-deployment opt-out. **Do NOT** put `FRANKENPHP_CONFIG` in `.env`/`.env.example`: the base
+> `env_file` applies to every environment and overrides the image, which silently disabled worker
+> mode in prod until Oliva 1.4.3.
 
 > [!CAUTION]
 > Docker can have a cache layer, make sure you have the right build for each deployment or rebuild your project with --no-cache option to avoid cache issue.

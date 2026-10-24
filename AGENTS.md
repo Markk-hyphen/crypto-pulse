@@ -8,7 +8,7 @@ Repo propio `Markk-hyphen/crypto-pulse` (público), **fork de Oliva** como finan
 
 Remote `oliva-upstream` → `https://github.com/Markk-hyphen/oliva.git`. El sync es **one-way Oliva → crypto-pulse** con merge (nunca al revés: el dominio cripto no vuelve al framework; un fix genérico nacido acá se *backportea* a Oliva por su cuenta, ver `docs/oliva/actualizaciones.md`). Herramientas y flujo completo en `docs/oliva/actualizaciones.md`; comando de chat: `claude oliva sync`.
 
-- **Versión de Oliva:** `OLIVA_VERSION` = **1.4.0**. Último sync: **2026-10-23** — capa agéntica de Oliva: los docs del agente migraron a `AGENTS.md` (con un stub `CLAUDE.md` de una línea, `@AGENTS.md`) + CLI único `./oliva`. Mismo día, antes: 1.3.0 y post-1.3.0 (`paths-ignore` del CI para docs + roadmap).
+- **Versión de Oliva:** `OLIVA_VERSION` = **1.5.1**. Último sync: **2026-10-24** — salto 1.4.1→1.5.1 (4 releases): 1.4.2 (cron en prod vía `COMPOSE_PROFILES` del host, `down --profile '*'`, techos de composer + guard), 1.4.3 (**worker mode de FrankenPHP ON por defecto en prod** + 4ª capa del audit: runtime PHP/FrankenPHP), 1.5.0 (**acciones de upgrade que no se pierden**: etiquetas de lugar + `./oliva ack` + guards por máquina), 1.5.1 (ajustes). Antes: 1.4.0 el 2026-10-23 (capa agéntica: docs a `AGENTS.md` + CLI `./oliva`).
 - **Al inicio de cada sesión:** `scripts/oliva/sync.sh check` (y `scripts/oliva/deps.sh due`). Si avisan, mencionarlo a Marcos; no syncear sin que lo pida.
 - **Archivos del framework** (`scripts/oliva/owned-paths.txt`): no editarlos acá. Lo que CMP necesite distinto va como opción en Oliva.
 - **Historia:** hasta 2026-10 CMP vivía como rama del repo de Oliva (decisión temprana, no repetible). El sync de 2026-07-02 costó 19 conflictos `add/add` (análisis en `SYNC-NOTES.md`); desde entonces CMP y Oliva comparten ancestro y los merges son 3-way normales.
@@ -140,14 +140,24 @@ Correr al **inicio** de cada sesión antes de tocar código:
 ```
 
 Colapsa en una sola llamada read-only: rama, status, log, `docker compose ps` (incl.
-`rabbitmq`/`worker`/`scheduler` por profiles), estado de migraciones, `deps.sh due` y —por ser
-CMP un fork con remote `oliva-upstream`— `sync.sh check`. Ningún paso lo aborta, ni con Docker
-abajo. Si deps o sync avisan, mencionárselo a Marcos; no syncear ni correr el ciclo sin que lo pida.
+`rabbitmq`/`worker`/`scheduler` por profiles), estado de migraciones, `deps.sh due`,
+**acciones de upgrade pendientes en esta máquina** (`sync.sh pending`; se reconocen con
+`./oliva ack`) y —por ser CMP un fork con remote `oliva-upstream`— `sync.sh check`. Ningún paso
+lo aborta, ni con Docker abajo. Lo único que escribe es `.oliva/acked-version` (gitignored) la
+primera vez. Si deps o sync avisan, mencionárselo a Marcos; no syncear ni correr el ciclo sin que lo pida.
+
+> **Acciones de upgrade (nuevo en Oliva 1.5.0):** las notas de `UPGRADING.md` que un fork tiene
+> que accionar (ej. borrar `FRANKENPHP_CONFIG` del `.env` del host, prender un profile) ya no se
+> pierden al terminar el merge: llevan etiqueta de lugar (`[host]`, `[repo]`) y `doctor`/`deploy.sh`
+> las listan **por máquina** hasta reconocerlas con `./oliva ack`. Las que tienen guard
+> (`cron`, `worker-env`, `worker-image`) las chequea la tooling donde vive el estado.
 
 `deps.sh due` (dentro de `doctor`) reporta DOS cadencias: el ciclo de deps (frescura, ~45 días) y el **audit de CVEs**
-(seguridad, ~7 días → `scripts/oliva/deps.sh audit`: composer + yarn audit + Trivy sobre las
-imágenes base, la capa que composer/yarn audit no ven). Si el audit avisa que TOCA, correr
-`deps.sh audit` — un CVE no espera al ciclo. Ver `docs/oliva/actualizaciones.md` ("El aviso por advisory").
+(seguridad, ~7 días → `scripts/oliva/deps.sh audit`). El audit tiene **cuatro capas** (nuevo en 1.4.3):
+composer audit (paquetes PHP) + yarn audit (JS) + Trivy sobre las imágenes base (SO + binarios) +
+el **runtime compilado** (PHP contra php.net, chequeo duro; FrankenPHP contra su release, blando) —
+PHP y el servidor salen compilados del source y ningún scanner de paquetes los ve. Si el audit avisa
+que TOCA, correr `deps.sh audit` — un CVE no espera al ciclo. Ver `docs/oliva/actualizaciones.md` ("El aviso por advisory").
 
 Smoke completo del stack (tras un sync o un cambio de dependencias): `OLIVA_VERIFY_SKIP=schema scripts/oliva/verify.sh` (`schema` en rojo conocido por pgvector, ver deuda 🔴).
 

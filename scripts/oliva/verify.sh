@@ -17,6 +17,8 @@
 #   [schema]      doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
 #   [phpunit]     suite completa
 #   [prod-build]  buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
+#   [prod-worker] worker mode de FrankenPHP prendido en prod: la imagen hornea
+#                 FRANKENPHP_CONFIG y el .env de este checkout no lo pisa a vacío.
 #   [ci-build]    rebuildea el backend con el driver buildx del CI (docker-container). SOLO
 #                 si backend/php-extensions.txt tiene extensiones: es el camino donde el
 #                 driver local y el del CI se comportan distinto (ej. /tmp en 755 → exit 100,
@@ -26,6 +28,7 @@
 # Corre sobre la DB de dev (es la de siempre); no crea ni borra stacks.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib/upgrade-guards.sh"
 require_repo_root
 [[ -f .env ]] || die "falta .env (cp .env.example .env)"
 
@@ -48,6 +51,18 @@ do_migrations() { be bin/console doctrine:migrations:up-to-date; }
 do_schema()     { be bin/console doctrine:schema:validate; }
 do_phpunit()    { be php vendor/bin/phpunit; }
 do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend; }
+
+# Tras el prod-build: worker mode tiene que quedar prendido en prod. Dos mitades, las dos
+# guards de lib/upgrade-guards.sh (deploy*.sh corre las mismas en el host):
+#   worker-image: la imagen hornea el valor (si alguien lo saca del Dockerfile, arranca apagado).
+#   worker-env:   el .env de ESTE checkout no lo pisa a vacío (el CI no ve el .env real).
+do_prod_worker() {
+  local prod=(docker compose -f docker-compose.yml -f docker-compose.prod.yml) rc=0
+  guard_worker_image "${prod[@]}" || rc=1
+  guard_worker_env "${prod[@]}" || rc=1
+  (( rc == 0 )) && echo "worker mode: horneado en la imagen y sin pisar en el env"
+  return $rc
+}
 
 # Builder `oliva-ci` (driver docker-container, como setup-buildx-action en el CI). Se crea
 # la primera vez; guarda su propia caché, así que solo el primer build es lento.
@@ -130,6 +145,7 @@ step migrations  do_migrations
 step schema      do_schema
 step phpunit     do_phpunit
 step prod-build  do_prod_build
+step prod-worker do_prod_worker
 if fork_has_extensions; then step ci-build do_ci_build
 else RESULTS+=("SKIP  ci-build (php-extensions.txt vacío)"); fi
 
