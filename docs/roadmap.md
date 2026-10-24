@@ -12,20 +12,35 @@ on top of decisions that were already sound.
 
 ---
 
-## Guiding principle: decoupling → full optionality
+## Guiding principle: assumed → chosen, all the way down
 
 The through-line of every item below is the same move Oliva has been making
-since day one: **turn what is assumed into what is chosen.**
+since day one: **turn what is assumed into what is chosen.** Taken to its end,
+that move has three steps:
 
-- **Today:** three mandatory services (`backend`, `frontend`, `database`) always
-  come up; optional services (`queues`, `cron`) hang behind Compose profiles.
-- **Destination:** *no* mandatory services. Oliva becomes a set of coherently
-  connected, individually optional pieces — closer to opt-in microservices than
-  to a monolith with switches. An app composes only the pieces it needs; nothing
-  it didn't ask for is present to turn off.
+1. **Some services optional, some infra external.** *(Today.)* `backend`,
+   `frontend` and `database` always come up; `queues` and `cron` hang behind
+   Compose profiles; shared-infra swaps the local Postgres/RabbitMQ for shared
+   ones on the same host.
+2. **No mandatory services.** An app composes only the pieces it needs, and
+   nothing it didn't ask for is present to turn off.
+3. **Every piece optional *and* replaceable.** Any role can be filled by
+   something other than Oliva's implementation. Oliva keeps offering, and
+   encouraging, the one it has made robust.
 
-Profiles were the first step of this (making optional what used to be
-mandatory). The rest of the roadmap is the same line, taken further.
+Steps 2 and 3 are the same idea. "Optional" means *replaced by nothing*;
+shared-infra was already *replaced by something external*. So every role in an
+Oliva app is a **slot**, and every slot is in one of three states:
+
+| State | What it means | Who answers for it |
+|---|---|---|
+| **Default** | Oliva's own implementation | Oliva, with its full safety net |
+| **Replaced** | Something else that honors the slot's contract | Whoever replaced it, and Oliva says so out loud |
+| **Absent** | The app doesn't need the role | Nobody, at zero cost |
+
+The destination is closer to opt-in services than to a monolith with switches.
+It is still not a neutral menu, though: the default is the path Oliva stands
+behind (item 2).
 
 ---
 
@@ -79,12 +94,123 @@ Axes to watch while doing it:
 The output feeds everything below — especially the scaffolding work, which
 should not be designed until this signal exists.
 
-## 2. Zero mandatory services / full optionality
+## 2. Composable services: every role optional and replaceable
 
-The destination described in the guiding principle. Blocked on a prerequisite:
+The destination from the first guiding principle, made concrete.
+
+### One robust default per role, the rest by contract
+
+Oliva makes **one** implementation of each role robust and stands behind it. It
+does not try to make every alternative robust. Most of the safety net is
+specific to the default stack. `deps.sh`, `sync.sh locks`, the
+unbound-constraints guard, `verify.sh`'s php-version/schema/phpunit steps, the
+CI jobs and `php-extensions.txt` all assume composer, PHP and Doctrine. Giving
+another stack the same net means duplicating every guard and keeping them alive
+through every deps cycle, CVE audit and sync rehearsal. One maintainer can't do
+that honestly. A guard written without real command of the stack it guards is
+worse than none, because it suggests a protection that isn't there.
+
+So for a **replaced** slot, Oliva guarantees the slot's contract and everything
+*around* it: routing, infra, deploy. What happens *inside* the replacement
+(deps, tests, schema, seeding safety), and the cost/risk trade-off of leaving
+the default, belong to whoever replaced it.
+
+**Encouraged structurally, not rhetorically.** The default asks for nothing: no
+flag, no config. A replacement has to be declared. The easy path is always the
+robust one, and leaving it is a deliberate act.
+
+**Replaced must be loud. Absent must be silent.** A replaced slot can't look
+covered: `doctor`, `verify` and CI say which slot is outside the net and which
+checks don't run for it. That is the no-silent-failures principle applied to
+Oliva's own limits. An absent slot costs nothing and prints nothing.
+
+**The door for contributors.** If Oliva ever opens up, someone who knows another
+stack well can contribute its guards and maintain them. An alternative becomes a
+second default when someone owns its net, not before.
+
+### The slots
+
+| Role | Default | Contract | Kind | Today |
+|---|---|---|---|---|
+| Edge / gateway | Caddy, inside `frontend` | routes `/api`, `/health` and realtime to their slots; security headers, CSP | independent | bundled into `frontend`; duplicated by the Vite proxy in dev |
+| Frontend | Vite build, served by Caddy | static assets behind the gateway, same-origin API | independent | bundled with the gateway |
+| Backend / API | Symfony on FrankenPHP | HTTP `:80`, `/api`, a real `GET /health`, `migrate` and `seed` hooks | anchor | carries the realtime hub and the DB lifecycle |
+| Realtime | Mercure hub | HTTP publish with a JWT, SSE subscribe | independent | embedded in the backend |
+| Database | Postgres + pgvector | `DATABASE_URL`, Postgres ≥ 15 with `vector` | backend-tied | always on locally; external via shared-infra |
+| Queue | RabbitMQ (`queues`) | AMQP DSN | backend-tied | optional; external via shared-infra |
+| Worker | Messenger consumer | an image and a long-running command | backend-tied | dev only, no prod definition |
+| Scheduler | supercronic (`cron`) | runs commands on a schedule | backend-tied | optional; built from the backend image |
+
+**Two kinds of replacement.** An *independent* slot can be swapped and no other
+slot notices, as long as the contract holds over HTTP or SSE. A *backend-tied*
+slot is spoken to by the backend's own code (Doctrine, Messenger), so its
+contract is written in terms of what the default backend speaks. A managed
+Postgres is a clean swap; shared-infra already does it. MySQL, or Redis instead
+of RabbitMQ, also means changing the backend, and that is part of the cost the
+replacer takes on.
+
+### Shared-infra: the first replacement, already shipped
+
+The shared-infra layer (`~/infra`: shared Postgres + RabbitMQ + reverse proxy
+for several Oliva apps on one host) is this item already working. It replaces
+two backend-tied slots with external ones that honor the same contract. Its
+long-term shape is **not** a standalone project, nor a separately maintained
+module (which would need manual sync). It's an install flag, `--shared-infra`
+(item 3).
+
+### First: unbundle the roles
+
+A role that lives inside another container can't be replaced on its own, and
+today three containers carry more than one role:
+
+- **`frontend` is also the gateway.** Replacing the frontend (say, with Next.js)
+  silently drops the routing to the backend and the security headers.
+- **`backend` is also the realtime hub** (a `mercure` directive in
+  `backend/frankenphp/Caddyfile`), and it runs the DB lifecycle (wait-for-db,
+  migrations on boot, JWT key generation) from a PHP entrypoint.
+  Replacing the backend silently drops realtime. Extracting the hub (`realtime`
+  profile) reverses the decision recorded in
+  `oliva-upgrade-optional-services.md`. Publishing then becomes an HTTP POST
+  with a JWT, which works from any stack. *Not now:* it happens as part of this
+  item.
+- **`scheduler` and `worker`** build from `./backend` and assume `bin/console`
+  and Messenger.
+
+Separating these is a precondition, and it's worth doing even for forks that
+never replace anything: each piece becomes individually optional too.
+
+### The backend: the hardest slot
+
+Beyond the unbundling, these coupling points are implicit today and the
+contract has to make them explicit:
+
+- **Network:** HTTP on `:80` (no TLS), and a real health check (the dev
+  healthcheck is `kill -0 1`). It has to respect `X-Forwarded-For` from the
+  gateway's trusted proxy, because login throttling depends on it.
+- **`DATABASE_URL`** without Doctrine-only params (`serverVersion=…`, as printed
+  by `provision-postgres.sh`).
+- **Staging seeding:** `deploy-staging.sh` calls `doctrine:fixtures:load`, and
+  the "can't seed prod" guard is structural (`--no-dev` removes the command). A
+  replacement needs a `seed` hook *and* an equally structural guard.
+- **Sync:** `owned-paths.txt` owns `backend/Dockerfile` and `backend/frankenphp/`.
+  A fork with another backend would keep receiving FrankenPHP changes it can't
+  use, so `sync.sh` has to know which slots a fork replaced.
+- **Demo leftovers:** `/live.php` is wired into the frontend Caddyfile and the
+  Vite proxy.
+
+### Why it waits on item 3
+
 Compose profiles can only toggle *services*, not *code*. A fork with no queues
-still ships the `rabbitmq` block, the `worker`, the example migrations. True
-optionality can't be reached by adding more profiles — it needs item 3.
+still ships the `rabbitmq` block, the `worker` and the example migrations. A
+fork with its own backend still ships, and syncs, FrankenPHP. Absent and
+replaced slots only become clean when a fork is *born* with what it chose
+(`--queues`, `--backend=<kind>`, `--shared-infra`), so there's no default code
+left to sync or guards to skip.
+
+What can start earlier, as item-1 work: writing the contracts down, and probing
+them. Bootstrap a throwaway fork that replaces a slot (a minimal non-PHP
+backend, a different frontend) and log every place that breaks, or worse,
+doesn't.
 
 ## 3. Install-time scaffolding (the "flags" system)
 
@@ -95,25 +221,15 @@ The lever that makes item 2 possible. The distinction is categorical:
 - **Scaffolding = install-time.** The fork is *born* with only what it asked for.
   Nothing to turn off because it was never there.
 
-This is the v2.0 destination the README already names. It resolves the profiles
-frustration *and* subsumes shared-infra (see item 4) as just another install
-flag.
+This is the v2.0 destination the README already names. Every slot state from
+item 2 becomes a choice made here: default by omission, absent or replaced by
+flag. Shared-infra is just one more flag.
 
 > **Do not build this yet.** An installer is expensive and will be designed
 > wrong if built before item 1 reveals what actually varies between forks.
 > Earn the signal first.
 
-## 4. `oliva-shared-infra` as an install option, not a separate repo
-
-Today the shared-infra layer lives in its own repo (`~/infra`): a shared
-Postgres + RabbitMQ + reverse-proxy for running several Oliva apps on one host,
-with its own IaC lifecycle. That separation is fine for now, but the long-term
-shape is **not** a standalone `shared-infra` project, nor a separately
-maintained installable module (which would need manual sync). It's a flag of the
-installer from item 3: `--shared-infra`. The installer is what unifies it into
-Oliva coherently, instead of a module kept in step by hand.
-
-## 5. Agent layer: one entry point, vendor-neutral spec
+## 4. Agent layer: one entry point, vendor-neutral spec
 
 Two changes to how Oliva presents itself to whoever operates it — human or agent.
 
@@ -132,7 +248,7 @@ Foundation, and read natively by Codex, Cursor, Gemini CLI, Copilot, Aider, Zed
 and others, Claude Code included. Whoever forks Oliva should be able to bring
 their own tool without renaming anything.
 
-**Not blocked on item 1.** Unlike items 2–4, this needs no friction signal: it
+**Not blocked on item 1.** Unlike items 2–3, this needs no friction signal: it
 changes the entry point and the naming, not what Oliva ships. It is also the
 socket item 3 plugs into — an installer is `oliva new --queues --shared-infra`,
 which needs the dispatcher to exist first.
@@ -142,77 +258,7 @@ they wait on item 1 like everything else. The operational commands ship as thin
 pass-throughs with no new flags.
 
 Plan and decisions: [`docs/roadmap/epics/E-capa-agentica.md`](roadmap/epics/E-capa-agentica.md)
-(target v1.4.0).
-
-## 6. Replaceable backend: one first-class backend, the rest by contract
-
-The same "assumed → chosen" move, applied to the backend itself. Oliva's backend
-is Symfony on FrankenPHP and **stays that way**: it is the one backend Oliva
-makes robust. What changes is that it becomes *replaceable*. A fork can plug
-in a backend built on another stack (one API, several services, whatever it
-needs) without forking Oliva's tooling to do it.
-
-**Why only one first-class backend.** Most of Oliva's robustness is PHP-specific.
-The safety net from the guiding principle (`deps.sh`, `sync.sh locks`, the
-unbound-constraints guard, `verify.sh`'s php-version/schema/phpunit steps, the CI
-jobs, `php-extensions.txt`) assumes composer, PHP and Doctrine. Giving another
-stack the same net means duplicating every guard and keeping them all alive
-through every deps cycle, CVE audit and sync rehearsal. One maintainer can't do
-that honestly, and a guard written without real command of the stack it guards
-is worse than none: it suggests a protection that isn't there.
-
-**The split:**
-
-- **First-class backend (Symfony/FrankenPHP).** The full net, as today.
-- **Replacement backend.** Oliva guarantees only a **written contract** and
-  everything outside the backend: routing, infra, deploy, shared-infra.
-  Whatever happens inside the backend (deps, tests, schema, seeding safety) is
-  the responsibility of whoever replaces it. That includes the cost/risk
-  trade-off of leaving the first-class path.
-
-**The replacement must be loud, not silent.** Swapping the backend can't look
-like being covered. `doctor`, `verify` and CI have to say explicitly that the
-backend is outside Oliva's net and which checks don't run. That is the
-no-silent-failures principle applied to Oliva's own limits.
-
-**The door for contributors.** If Oliva ever opens up, someone who knows another
-stack well can contribute its guards and become its maintainer. A replacement
-backend becomes first-class when someone owns its net, not before.
-
-**What the contract has to cover.** These are coupling points that today are
-implicit, all assumed to be PHP:
-
-- **Network:** HTTP on `:80` (no TLS), routes under `/api`, a real `GET /health`
-  (the dev healthcheck is `kill -0 1`), respects `X-Forwarded-For` from the
-  frontend's trusted proxy (login throttling depends on it).
-- **Realtime: Mercure lives inside FrankenPHP** (a directive in
-  `backend/frankenphp/Caddyfile`). Replacing the backend silently loses
-  realtime. Extracting the hub into its own service (`realtime` profile)
-  belongs to this item and reverses the decision recorded in
-  `oliva-upgrade-optional-services.md`. After that, publishing is just an HTTP
-  POST with a JWT, which works from any stack. *Not now:* it happens when this
-  item is worked on.
-- **DB lifecycle:** wait-for-db, migrations on boot and JWT key generation all
-  live in the PHP entrypoint (`bin/console`). The contract needs a `migrate`
-  hook, and a `DATABASE_URL` without Doctrine-only params (`serverVersion=…`,
-  as printed by `provision-postgres.sh`).
-- **Staging seeding:** `deploy-staging.sh` calls `doctrine:fixtures:load`, and
-  the "can't seed prod" guard is structural (`--no-dev` removes the command).
-  A replacement needs a `seed` hook *and* an equally structural guard.
-- **`scheduler` / `worker`:** both build from `./backend` and assume
-  `bin/console` / Messenger. In the contract they become "your image, your
-  command", or they don't exist.
-- **Sync:** `owned-paths.txt` owns `backend/Dockerfile` and `backend/frankenphp/`.
-  A fork with another backend would keep receiving FrankenPHP changes it can't
-  use. `sync.sh` has to know the fork's backend kind.
-- **Demo leftovers:** `/live.php` is hardwired into the frontend Caddyfile and
-  the Vite proxy.
-
-**Dependencies.** The clean version needs item 3: a fork *born* with
-`--backend=<kind>` has no PHP files to sync and no PHP guards to skip. The
-contract itself can be written earlier, and the first probe is item 1's method
-applied here: bootstrap a throwaway fork with a minimal non-PHP backend and log
-every place that breaks, or worse, doesn't.
+(shipped in v1.4.0).
 
 ---
 
@@ -221,17 +267,15 @@ every place that breaks, or worse, doesn't.
 The items are dependency-ordered, not priority-ordered:
 
 ```
-1. Friction log  ──►  3. Scaffolding/flags  ──►  2. Full optionality
-   (produces the        (the mechanism)           (the goal)
-    signal)                ▲   │
-                           │   ├──►  4. shared-infra becomes a flag
-                           │   │
-5. Agent layer  ───────────┘   └──►  6. Replaceable backend
-   (CLI + AGENTS.md)                 (--backend=<kind>; contract + Mercure
-                                      extraction can start earlier)
+1. Friction log  ──►  3. Scaffolding/flags  ──►  2. Composable services
+   (produces the        (the mechanism)           (the goal: every slot
+    signal)                ▲                       default, replaced or absent)
+                           │
+4. Agent layer  ───────────┘
+   (CLI + AGENTS.md)
 ```
 
-Item 1 is cheap and can start any time. Items 2–4 wait on it. Item 5 doesn't —
-it's independent of the friction signal, and it builds the entry point that
-item 3 later extends. Item 6 needs item 3 for its clean form, but its contract
-and its first probe (a throwaway fork with a non-PHP backend) are item-1 work.
+Item 1 is cheap and can start any time, and so can item 2's groundwork:
+unbundling roles, writing the contracts, probing them with a throwaway fork.
+Item 2's clean form waits on item 3, which waits on item 1's signal. Item 4 is
+already shipped: it built the entry point that item 3 later extends.
