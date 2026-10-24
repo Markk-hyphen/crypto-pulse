@@ -5,10 +5,13 @@
 #   scripts/oliva/release.sh 1.2.0
 #
 # Exige que docs/oliva/UPGRADING.md ya tenga la sección "## 1.2.0": las notas son lo
-# que sync.sh le muestra a cada fork, así que no se publica sin escribirlas.
+# que sync.sh le muestra a cada fork, así que no se publica sin escribirlas. Desde 1.5.0
+# además valida que cada ítem de "Acción requerida" tenga su etiqueta [lugar(, guard: id)]
+# y que el guard exista (lib/upgrade-guards.sh, lint_upgrade_actions).
 # Escribe OLIVA_VERSION, commitea y crea el tag anotado v1.2.0. NO pushea: imprime el comando.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib/upgrade-guards.sh"
 require_repo_root
 
 ver="${1:-}"
@@ -18,6 +21,8 @@ require_clean_tree
 version_lt "$(local_oliva_version)" "$ver" || die "$ver no es mayor que la actual ($(local_oliva_version))."
 grep -qE "^## ${ver//./\\.}( |$)" docs/oliva/UPGRADING.md \
   || die "falta la sección '## $ver' en docs/oliva/UPGRADING.md (qué cambia y qué tiene que hacer cada fork)."
+lint_upgrade_actions "$ver" \
+  || die "etiquetas de 'Acción requerida' inválidas en '## $ver' (formato: cabecera de docs/oliva/UPGRADING.md)."
 git rev-parse -q --verify "refs/tags/v$ver" >/dev/null && die "el tag v$ver ya existe."
 
 printf '%s\n' "$ver" > OLIVA_VERSION

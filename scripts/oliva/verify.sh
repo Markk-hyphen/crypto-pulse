@@ -17,9 +17,8 @@
 #   [schema]      doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
 #   [phpunit]     suite completa
 #   [prod-build]  buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
-#   [prod-worker] la imagen de prod hornea worker mode de FrankenPHP (FRANKENPHP_CONFIG).
-#                 Mitad complementaria del guard del CI (que verifica que el compose no lo
-#                 pise a vacío): acá, que el valor exista en la imagen. Juntos = worker on.
+#   [prod-worker] worker mode de FrankenPHP prendido en prod: la imagen hornea
+#                 FRANKENPHP_CONFIG y el .env de este checkout no lo pisa a vacío.
 #   [ci-build]    rebuildea el backend con el driver buildx del CI (docker-container). SOLO
 #                 si backend/php-extensions.txt tiene extensiones: es el camino donde el
 #                 driver local y el del CI se comportan distinto (ej. /tmp en 755 → exit 100,
@@ -29,6 +28,7 @@
 # Corre sobre la DB de dev (es la de siempre); no crea ni borra stacks.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/../lib/upgrade-guards.sh"
 require_repo_root
 [[ -f .env ]] || die "falta .env (cp .env.example .env)"
 
@@ -52,22 +52,16 @@ do_schema()     { be bin/console doctrine:schema:validate; }
 do_phpunit()    { be php vendor/bin/phpunit; }
 do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend; }
 
-# Tras el prod-build: la imagen de prod DEBE hornear worker mode. Sin --load/inspect no se
-# puede ver el ENV horneado de otra forma barata; levantar el stack prod entero (DB nueva,
-# puertos, teardown) es justo lo que la Fase 2 local hace a mano. Acá alcanza con que el
-# valor exista en la imagen: si alguien lo saca del Dockerfile, worker arranca apagado.
+# Tras el prod-build: worker mode tiene que quedar prendido en prod. Dos mitades, las dos
+# guards de lib/upgrade-guards.sh (deploy*.sh corre las mismas en el host):
+#   worker-image: la imagen hornea el valor (si alguien lo saca del Dockerfile, arranca apagado).
+#   worker-env:   el .env de ESTE checkout no lo pisa a vacío (el CI no ve el .env real).
 do_prod_worker() {
-  local img
-  img="$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --images backend 2>/dev/null | head -1)"
-  [[ -n "$img" ]] || { warn "no pude resolver la imagen de prod del backend (¿se saltó prod-build?)"; return 1; }
-  if docker image inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
-       | grep -qx 'FRANKENPHP_CONFIG=import worker.Caddyfile'; then
-    echo "worker mode horneado en $img"
-  else
-    warn "la imagen de prod ($img) NO hornea FRANKENPHP_CONFIG=import worker.Caddyfile"
-    warn "worker mode arrancaría APAGADO en prod (ver backend/Dockerfile, stage frankenphp_prod)"
-    return 1
-  fi
+  local prod=(docker compose -f docker-compose.yml -f docker-compose.prod.yml) rc=0
+  guard_worker_image "${prod[@]}" || rc=1
+  guard_worker_env "${prod[@]}" || rc=1
+  (( rc == 0 )) && echo "worker mode: horneado en la imagen y sin pisar en el env"
+  return $rc
 }
 
 # Builder `oliva-ci` (driver docker-container, como setup-buildx-action en el CI). Se crea

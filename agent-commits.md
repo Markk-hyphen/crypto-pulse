@@ -673,3 +673,65 @@ cada fork con auth real. (3) Migración de forks: borrar `FRANKENPHP_CONFIG` del
 
 **No se tocó `OLIVA_VERSION` ni se corrió `release.sh`.** Este cambio cierra el segundo frente de
 1.4.3 (el primero fue la 4ª capa del audit, `61eb6bc`); el release se publica cuando Marcos lo pida.
+
+## [1.5.0] feat(sync): acciones de upgrade que no se pierden — guards + ack por máquina
+**Hash:** el del commit que agrega esta entrada (self-referencial, ver nota en [1.4.3])
+**Rama:** `feat/upgrade-actions` → `main`
+**Fecha:** 2026-10-24
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/lib/upgrade-guards.sh` | nuevo | Registro de guards (`cron`, `worker-env`, `worker-image`) + `run_upgrade_guards` (solo avisa, rc 0 siempre); pendientes por máquina (`.oliva/acked-version`, `seed_acked_version`, `pending_upgrade_actions`, `show_pending_upgrade_actions`, `ack_upgrade_actions`); `lint_upgrade_actions` para `release.sh`. Sin `jq`; lee `UPGRADING.md` con `git show`. |
+| `scripts/lib/cron-guard.sh` | modificado | `warn_if_cron_inactive` devuelve 1 al avisar (contrato de guard). Solo se llama vía `run_upgrade_guards`. |
+| `scripts/oliva/verify.sh` | modificado | `prod-worker` = `guard_worker_image` + `guard_worker_env`. Fix del falso positivo de `config --images \| head -1`. |
+| `scripts/deploy.sh`, `scripts/deploy-staging.sh` | modificado | Siembran el estado antes del `git pull`; al final, guards + acciones `[host]` pendientes. Reemplazan la llamada directa al cron-guard. |
+| `scripts/oliva/sync.sh` | modificado | `start` siembra antes del merge; subcomandos `pending` y `ack`; ayuda actualizada. |
+| `scripts/oliva/release.sh` | modificado | Desde 1.5.0 corre `lint_upgrade_actions` sobre la sección que publica. |
+| `oliva` | modificado | `./oliva ack`; `doctor` suma el paso "acciones de upgrade" (`sync.sh pending`). |
+| `docs/oliva/UPGRADING.md` | modificado | Cabecera: formato de etiquetas + escala eliminar > guard > etiqueta > texto. Sección `## 1.5.0`. |
+| `docs/oliva/actualizaciones.md` | modificado | Paso 5 del lado fork + sección "Acciones de upgrade: por qué no alcanza con escribirlas". |
+| `AGENTS.md` | modificado | Flujo de sync termina en doctor → ack; al escribir una acción, preguntarse primero si lleva guard. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+Nació del sync de finanzas-ong a 1.4.3, que dejó dos tareas para Oliva.
+
+**Causa raíz, medida en el código, no en la conducta del lector.** `sync.sh` mostraba las notas
+de upgrade como "secciones más nuevas que el `OLIVA_VERSION` local": solo antes del merge. Después
+el fork queda en la versión de upstream y no vuelven a aparecer. Pero las acciones de host (el
+`.env` del VPS) se hacen después y en otra máquina, y `deploy.sh` no mostraba nada; además borra
+`docs/` del working tree del host. Los pendientes de VPS de 1.4.2 y 1.4.3 en fong solo
+sobrevivieron porque el agente los anotó en su memoria. La propuesta inicial ("que el agente lo
+tome en serio") apuntaba al síntoma.
+
+**Decisiones:**
+- *Guards antes que avisos.* Clasificando las acciones de 1.3.0–1.4.3, casi nada era manual de
+  verdad: era estado fuera de git (un `.env`, otro host). Eso se chequea donde vive: `verify` en
+  desarrollo, `deploy*.sh` en el host. Precedente que ya funcionaba: el cron-guard de 1.4.2.
+- *El ack no calla a un guard.* El lector es casi siempre un agente; si "corré ack para que deje de
+  avisar" silenciara un chequeo, lo correría. Un ítem con guard nunca se lista como pendiente:
+  desaparece cuando el estado está bien.
+- *Pendientes por diferencia de versión por máquina, no por evento de sync.* El host nunca corre
+  `sync.sh` (hace pull + deploy), así que un state file escrito por `sync` no le llegaría.
+  `.oliva/acked-version` vs `OLIVA_VERSION`, uno por checkout: dev y host reconocen lo suyo.
+- *Siembra en silencio, antes del cambio de versión* (decisión de Marcos). Un host o clon nuevo
+  arranca del template vigente y no arrastra historia; sembrar antes del pull/merge hace que lo
+  que llega quede pendiente. Lo anterior a 1.5.0 lo cubren los guards.
+- *Guards solo avisan, nunca abortan* (decisión de Marcos): el stack ya está arriba; abortar se
+  reserva para riesgo de datos.
+- *`release.sh` exige etiquetas, no guards.* No puede saber si algo se puede chequear; sí puede
+  obligar a quien escribe el release a declarar el lugar y a responderse por qué no hay guard.
+- *Sin `jq`* en lo que corre en el host (no verificable hoy: no hay VPS). Se parsea el bloque YAML
+  del servicio en `config`; probado con `mawk`, el default de Ubuntu.
+
+**Problema encontrado en la ejecución (tarea 1).** El falso positivo de `prod-worker` en fong
+no era una diferencia de entorno: `config --images backend` lista también las imágenes de los
+`depends_on` en orden **no determinista** (en Oliva, 5 de 6 corridas daban `pgvector` primero).
+Oliva pasó el verify de 1.4.3 por suerte. Además, el fix que quedó anotado en fong (reemplazar el
+chequeo de imagen por el del env) perdía una guarda: si alguien saca el `ENV` del Dockerfile, el
+env da `unset` y pasa. Quedaron los dos chequeos.
+
+Verificado: `verify.sh` 9/9; guards contra el repo real (imagen 10/10, `.env` viejo detectado) y con
+compose falso (DB listada antes que el backend, imagen inexistente, compose que no resuelve);
+pendientes/ack/siembra/lint en un clon con una 1.5.1 de fixture; shellcheck sin errores.

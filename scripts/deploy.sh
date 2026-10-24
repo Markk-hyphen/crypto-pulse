@@ -15,7 +15,7 @@ APP_NAME="${1:-$(basename "$PWD")}"
 
 source "$(dirname "$0")/lib/project-guard.sh"
 source "$(dirname "$0")/lib/docker-prune.sh"
-source "$(dirname "$0")/lib/cron-guard.sh"
+source "$(dirname "$0")/lib/upgrade-guards.sh"
 assert_not_staging_name "$APP_NAME"
 assert_project_owned_here "$APP_NAME"
 
@@ -25,6 +25,10 @@ COMPOSE=(docker compose -p "$APP_NAME"
   -f docker-compose.shared-infra.yml)
 
 echo ">> Deploy de '$APP_NAME' desde $PWD"
+
+# Antes del pull: si este host no tiene estado de acciones de upgrade, se siembra con la
+# versión que corre ahora, así las acciones [host] de lo que traiga el pull quedan pendientes.
+seed_acked_version
 
 if [[ "${SKIP_PULL:-0}" != "1" ]]; then
   echo ">> git pull"
@@ -59,6 +63,9 @@ echo ">> estado:"
 # La imagen que se acaba de reemplazar queda sin tag: sin esto, cada deploy suma ~750 MB.
 prune_build_leftovers
 
-warn_if_cron_inactive "${COMPOSE[@]}"
+# Solo avisan, no abortan (el stack ya está arriba). UPGRADING.md se lee de git: el
+# working tree ya no tiene docs/.
+run_upgrade_guards "${COMPOSE[@]}"
+show_pending_upgrade_actions host || true
 
 echo ">> OK. Profiles opcionales (cron, queues): se activan con COMPOSE_PROFILES en el .env del host."

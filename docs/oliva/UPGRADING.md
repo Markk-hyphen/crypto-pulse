@@ -5,6 +5,62 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+**Etiquetas de acción (desde 1.5.0, `release.sh` las exige).** Cada ítem de "Acción requerida"
+es un bullet `- [lugar] ...` o `- [lugar, guard: <id>] ...`:
+
+| Lugar | Dónde se hace | Quién lo vuelve a mostrar |
+|---|---|---|
+| `merge` | durante el sync, en el repo | `sync.sh start` (antes de resolver) |
+| `local` | en el checkout de desarrollo, fuera de git (`.env`, archivos gitignored) | `./oliva doctor` hasta `./oliva ack` |
+| `host` | en cada host donde se deploya (`.env` del VPS) | `deploy*.sh` en ese host hasta un `ack` ahí (y `doctor` como recordatorio) |
+| `decisión` | lo elige el fork | `./oliva doctor` hasta `./oliva ack` |
+
+`guard: <id>` = un chequeo de `scripts/lib/upgrade-guards.sh` (o un step de `verify.sh`) que
+verifica el estado real. Un ítem con guard no se lista como pendiente: el guard avisa en
+`verify`/`deploy` mientras el estado esté mal, y no se puede callar con `ack`.
+
+Al escribir una acción, en este orden: **eliminarla** (que el cambio no le pida nada al fork)
+**> guard > etiqueta sin guard** (se muestra hasta el ack) **> texto suelto**. Casi todo lo que
+parece "manual" es estado que vive donde git no llega (un `.env`, otro host); eso se chequea.
+
+## 1.5.0 — 2026-10-24
+
+> Acciones de upgrade que no se pierden. Hasta acá, `sync.sh` mostraba estas notas solo antes
+> del merge: después el fork queda en la versión de upstream y no vuelven a aparecer. Pero las
+> acciones de host se hacen después, en otra máquina, al deployar, y `deploy.sh` no mostraba
+> nada (además borra `docs/` del working tree del host). Caso real: los pendientes de VPS de
+> 1.4.2 (cron) y 1.4.3 (`FRANKENPHP_CONFIG`) en finanzas-ong solo sobrevivieron porque el
+> agente los anotó en su memoria. Ahora: (1) las acciones llevan etiqueta de lugar; (2) las que
+> tienen guard las chequea la tooling donde vive el estado; (3) las demás se muestran en cada
+> máquina (`doctor`, `deploy.sh`) hasta que se reconocen ahí con `./oliva ack`.
+>
+> Fix incluido: el step `prod-worker` de `verify.sh` daba falso positivo al azar. Usaba
+> `config --images backend | head -1`, pero esa lista incluye las imágenes de los `depends_on`
+> en orden no determinista (medido: 5 de 6 corridas daban primero `pgvector`). Ahora resuelve
+> la imagen del servicio y suma el chequeo del env resuelto.
+
+**Acción requerida en el fork**
+
+Ninguna. El estado (`.oliva/acked-version`, ya gitignored por `.oliva/`) se siembra solo en la
+primera corrida, en cada máquina. Los pendientes de host de 1.4.2 y 1.4.3 no se listan (son
+anteriores al formato), pero sus guards (`cron`, `worker-env`) los avisan en el próximo deploy.
+
+**Qué cambió**
+
+- `scripts/lib/upgrade-guards.sh` (nuevo): registro de guards (`cron`, `worker-env`,
+  `worker-image`), acciones pendientes por máquina, `ack` y el lint de etiquetas. Sin `jq`
+  (corre en el host); lee `UPGRADING.md` con `git show`, no del disco.
+- `scripts/deploy.sh`, `deploy-staging.sh`: siembran el estado antes del `git pull` y, al final,
+  corren todos los guards y muestran las acciones `[host]` pendientes. Solo avisan, no abortan.
+  Reemplaza la llamada directa a `warn_if_cron_inactive` (`cron-guard.sh` ahora devuelve 1 al
+  avisar).
+- `scripts/oliva/verify.sh`: `prod-worker` = guards `worker-image` + `worker-env` (este último ve
+  el `.env` del checkout, que el job `prod-config` del CI no ve).
+- `scripts/oliva/sync.sh`: `start` siembra el estado antes del merge; subcomandos nuevos
+  `pending` y `ack`. `./oliva ack` (nuevo) y `./oliva doctor` muestra "acciones de upgrade".
+- `scripts/oliva/release.sh`: desde 1.5.0, valida las etiquetas de la sección que publica y que
+  cada `guard:` exista.
+
 ## 1.4.3 — 2026-10-24
 
 > Cuarta capa del audit: el runtime compilado (PHP y el binario de FrankenPHP). Se comprobó
