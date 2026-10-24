@@ -144,6 +144,76 @@ pass-throughs with no new flags.
 Plan and decisions: [`docs/roadmap/epics/E-capa-agentica.md`](roadmap/epics/E-capa-agentica.md)
 (target v1.4.0).
 
+## 6. Replaceable backend: one first-class backend, the rest by contract
+
+The same "assumed → chosen" move, applied to the backend itself. Oliva's backend
+is Symfony on FrankenPHP and **stays that way**: it is the one backend Oliva
+makes robust. What changes is that it becomes *replaceable*. A fork can plug
+in a backend built on another stack (one API, several services, whatever it
+needs) without forking Oliva's tooling to do it.
+
+**Why only one first-class backend.** Most of Oliva's robustness is PHP-specific.
+The safety net from the guiding principle (`deps.sh`, `sync.sh locks`, the
+unbound-constraints guard, `verify.sh`'s php-version/schema/phpunit steps, the CI
+jobs, `php-extensions.txt`) assumes composer, PHP and Doctrine. Giving another
+stack the same net means duplicating every guard and keeping them all alive
+through every deps cycle, CVE audit and sync rehearsal. One maintainer can't do
+that honestly, and a guard written without real command of the stack it guards
+is worse than none: it suggests a protection that isn't there.
+
+**The split:**
+
+- **First-class backend (Symfony/FrankenPHP).** The full net, as today.
+- **Replacement backend.** Oliva guarantees only a **written contract** and
+  everything outside the backend: routing, infra, deploy, shared-infra.
+  Whatever happens inside the backend (deps, tests, schema, seeding safety) is
+  the responsibility of whoever replaces it. That includes the cost/risk
+  trade-off of leaving the first-class path.
+
+**The replacement must be loud, not silent.** Swapping the backend can't look
+like being covered. `doctor`, `verify` and CI have to say explicitly that the
+backend is outside Oliva's net and which checks don't run. That is the
+no-silent-failures principle applied to Oliva's own limits.
+
+**The door for contributors.** If Oliva ever opens up, someone who knows another
+stack well can contribute its guards and become its maintainer. A replacement
+backend becomes first-class when someone owns its net, not before.
+
+**What the contract has to cover.** These are coupling points that today are
+implicit, all assumed to be PHP:
+
+- **Network:** HTTP on `:80` (no TLS), routes under `/api`, a real `GET /health`
+  (the dev healthcheck is `kill -0 1`), respects `X-Forwarded-For` from the
+  frontend's trusted proxy (login throttling depends on it).
+- **Realtime: Mercure lives inside FrankenPHP** (a directive in
+  `backend/frankenphp/Caddyfile`). Replacing the backend silently loses
+  realtime. Extracting the hub into its own service (`realtime` profile)
+  belongs to this item and reverses the decision recorded in
+  `oliva-upgrade-optional-services.md`. After that, publishing is just an HTTP
+  POST with a JWT, which works from any stack. *Not now:* it happens when this
+  item is worked on.
+- **DB lifecycle:** wait-for-db, migrations on boot and JWT key generation all
+  live in the PHP entrypoint (`bin/console`). The contract needs a `migrate`
+  hook, and a `DATABASE_URL` without Doctrine-only params (`serverVersion=…`,
+  as printed by `provision-postgres.sh`).
+- **Staging seeding:** `deploy-staging.sh` calls `doctrine:fixtures:load`, and
+  the "can't seed prod" guard is structural (`--no-dev` removes the command).
+  A replacement needs a `seed` hook *and* an equally structural guard.
+- **`scheduler` / `worker`:** both build from `./backend` and assume
+  `bin/console` / Messenger. In the contract they become "your image, your
+  command", or they don't exist.
+- **Sync:** `owned-paths.txt` owns `backend/Dockerfile` and `backend/frankenphp/`.
+  A fork with another backend would keep receiving FrankenPHP changes it can't
+  use. `sync.sh` has to know the fork's backend kind.
+- **Demo leftovers:** `/live.php` is hardwired into the frontend Caddyfile and
+  the Vite proxy.
+
+**Dependencies.** The clean version needs item 3: a fork *born* with
+`--backend=<kind>` has no PHP files to sync and no PHP guards to skip. The
+contract itself can be written earlier, and the first probe is item 1's method
+applied here: bootstrap a throwaway fork with a minimal non-PHP backend and log
+every place that breaks, or worse, doesn't.
+
 ---
 
 ## Sequencing
@@ -154,12 +224,14 @@ The items are dependency-ordered, not priority-ordered:
 1. Friction log  ──►  3. Scaffolding/flags  ──►  2. Full optionality
    (produces the        (the mechanism)           (the goal)
     signal)                ▲   │
-                           │   └──►  4. shared-infra becomes a flag
-                           │
-5. Agent layer  ───────────┘
-   (CLI + AGENTS.md)
+                           │   ├──►  4. shared-infra becomes a flag
+                           │   │
+5. Agent layer  ───────────┘   └──►  6. Replaceable backend
+   (CLI + AGENTS.md)                 (--backend=<kind>; contract + Mercure
+                                      extraction can start earlier)
 ```
 
 Item 1 is cheap and can start any time. Items 2–4 wait on it. Item 5 doesn't —
 it's independent of the friction signal, and it builds the entry point that
-item 3 later extends.
+item 3 later extends. Item 6 needs item 3 for its clean form, but its contract
+and its first probe (a throwaway fork with a non-PHP backend) are item-1 work.
