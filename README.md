@@ -65,7 +65,9 @@ There's one source per layer, never stacked. Trivy is version-pinned and run as 
 
 ### 4. Several apps on one small server
 
-Everything Compose creates is derived from the project name (images, networks, volumes, network aliases), so apps never collide on the same Docker host. The opt-in `docker-compose.shared-infra.yml` overlay runs several apps against one shared Postgres, RabbitMQ and reverse proxy, with the frontend and data networks split. Staging is just one more app on the same host, with its own throwaway database and seeded data. The runbooks are in [`AGENTS.md`](AGENTS.md).
+Everything Compose creates is derived from the project name (images, networks, volumes, network aliases), so apps never collide on the same Docker host. Staging is just one more app on the same host, with its own throwaway database and seeded data.
+
+Going further, several apps can share one Postgres, RabbitMQ and reverse proxy instead of each running its own. That's the opt-in `docker-compose.shared-infra.yml` overlay. Today it's built around the maintainer's own server layout (the shared services live in a separate infra repo) and isn't packaged for general use. Making it a self-contained option is on the roadmap. The runbooks are in [`AGENTS.md`](AGENTS.md).
 
 ---
 
@@ -171,7 +173,7 @@ COMPOSE_PROFILES=queues,cron docker compose up -d
 
 The through-line of Oliva is one move: **turn what is assumed into what is chosen.** Taken to its end, it has three steps:
 
-1. **Some services optional, some infra external.** This is where Oliva is today: profiles, plus shared-infra.
+1. **A fixed core with optional extras.** This is where Oliva is today. Backend, frontend and database always come up. Queues and the scheduler are opt-in. The database and the broker can already live outside the app (a managed Postgres, say) as long as the connection matches. But every app still ships every piece, even the ones it switched off.
 2. **No mandatory services.** An app has only the pieces it asked for.
 3. **Every piece optional *and* replaceable.** Every role (gateway, frontend, backend, realtime, database, queue, worker, scheduler) becomes a slot that is either the **default** (what Oliva makes robust), **replaced** (anything that honors the slot's contract) or **absent**.
 
