@@ -5,6 +5,38 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
+## 1.4.3 — 2026-10-24
+
+> Cuarta capa del audit: el runtime compilado (PHP y el binario de FrankenPHP). Se comprobó
+> que **Trivy no ve a PHP** — en la imagen de FrankenPHP, PHP y el servidor salen compilados
+> del source, no figuran como paquete, y Trivy no los matchea contra ninguna CVE DB (no detectó
+> PHP2Shell en la imagen vulnerable). `composer`/`yarn audit` tampoco (PHP no es un paquete).
+> El único rastro era `deps report` mostrando el bump de imagen cada ~45 días, sin marca de
+> seguridad. La capa nueva lee las versiones pinneadas en el `FROM` del backend y las compara
+> contra el upstream: PHP contra su rama en php.net (chequeo **duro**, falla el audit si hay un
+> patch más nuevo), FrankenPHP contra su último release de GitHub (aviso **blando**, no falla).
+> No es advisory-matching ni detección de lo no publicado — avisa cuando el upstream ya publicó
+> el patch. El parseo del `FROM` tiene guardas contra falso verde: si no puede verificar (base
+> que no es frankenphp, tag ilegible, o versión que no figura en php.net), avisa y saltea; nunca
+> reporta "al día" sin confirmarlo.
+
+**Acción requerida en el fork**
+
+- Ninguna. `scripts/oliva/deps.sh` es OLIVA-owned y baja con el merge. El próximo
+  `./oliva deps audit` del fork corre también la capa de runtime; como el `FROM` del backend
+  también es owned, el fork hereda el mismo pin de PHP/FrankenPHP y verá lo mismo que Oliva.
+
+**Qué cambió**
+
+- `scripts/oliva/deps.sh`: capa `runtime` nueva (`check_runtime` + `check_php_runtime` duro +
+  `check_frankenphp_runtime` blando), cableada en `audit` (afecta el exit code vía PHP) y en
+  `report` (informativa). FrankenPHP usa `curl -L`: `dunglas/frankenphp` hace 301 redirect.
+- `deps.sh` ahora localiza sus libs por `BASH_SOURCE` (no `$0`) y el dispatcher va detrás de una
+  guarda `[[ BASH_SOURCE == $0 ]]`, para poder sourcear el archivo y testear las funciones con
+  tags fabricados. Sin cambio de comportamiento al ejecutarlo normalmente.
+- Docs: README §3 y `docs/oliva/actualizaciones.md` pasan de tres a cuatro capas; se corrige el
+  texto que atribuía el runtime de PHP a Trivy.
+
 ## 1.4.2 — 2026-10-23
 
 > Cron en prod: el scheduler se activa con `COMPOSE_PROFILES` en el `.env` del host, no

@@ -82,12 +82,29 @@ viene de cubrir **capas distintas**, cada una con una buena fuente:
 |---|---|---|
 | Paquetes PHP (`composer.lock`) | Symfony, Doctrine, … | `composer audit` → Packagist/GHSA |
 | Paquetes JS (`yarn.lock`) | Vite y su árbol | `yarn audit` → GHSA |
-| **Imágenes base** | **SO + binarios DENTRO de la imagen** (OpenSSL del postgres, el binario de Caddy en FrankenPHP, …) | **Trivy** (DB propia ≈ GHSA + NVD + distros) |
+| **Imágenes base** | **SO + binarios DENTRO de la imagen** (OpenSSL del postgres, libc, …) | **Trivy** (DB propia ≈ GHSA + NVD + distros) |
+| **Runtime compilado** | **PHP y el binario de FrankenPHP** — compilados del source, no son paquete de nadie | **php.net** (rama de release) + **releases de GitHub** (FrankenPHP) |
 
-La capa de imágenes era el agujero: `composer`/`yarn audit` ven los *paquetes* de la
-app, nunca lo que vive adentro de la imagen base. Trivy la cierra. `deps.sh audit`
-corre las tres; `deps.sh report` incluye la de Trivy en la foto completa; y el CI
-tiene un job `image-scan` (report-only) con la misma versión pinneada de Trivy.
+La capa de imágenes cerró un agujero (`composer`/`yarn audit` ven los *paquetes* de
+la app, nunca lo que vive adentro de la imagen base). Pero dejó otro, y se comprobó
+empíricamente: **Trivy no ve a PHP**. En la imagen de FrankenPHP, PHP y el propio
+servidor FrankenPHP salen **compilados del source**, así que no figuran como paquete
+y Trivy no los matchea contra ninguna CVE DB (probado: no detectó PHP2Shell en la
+imagen vulnerable). La 4ª capa cubre ese runtime leyendo las versiones pinneadas en el
+`FROM` del backend y comparándolas contra el upstream — no hace advisory-matching
+(imposible con confianza: el módulo Go de FrankenPHP sale pseudo-versionado), avisa
+cuando el upstream **ya publicó** un patch más nuevo:
+
+- **PHP → chequeo duro** (falla el audit): ¿hay un patch más nuevo en la rama contra
+  php.net? Doble verificación contra falso verde: si la versión pinneada no figura en
+  php.net para esa rama (parseo erróneo o rama EOL), **avisa y saltea** — nunca reporta
+  "al día" sin poder verificarlo. Igual ante base que no es frankenphp o tag ilegible.
+- **FrankenPHP → aviso blando** (no falla el audit): solo frescura contra el último
+  release de GitHub. Es un flag menor, presente pero sin pretender que resuelve advisories.
+
+`deps.sh audit` corre las cuatro; `deps.sh report` incluye las de Trivy y runtime en la
+foto completa; y el CI tiene un job `image-scan` (report-only) con la misma versión
+pinneada de Trivy.
 
 Detalles operativos: Trivy corre como **contenedor pinneado** (nada que instalar en
 el host), escanea el **ref base** fijado (no la imagen prod buildeada: ahí viven casi

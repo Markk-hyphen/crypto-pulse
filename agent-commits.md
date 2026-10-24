@@ -565,3 +565,51 @@ No se corrió un `deps.sh update` real (el ciclo no toca) y el job de CI recién
 - La forma limpia del ítem sigue esperando al scaffolding (ítem 3), porque los profiles no sacan código ni cortan el sync de `owned-paths`.
 
 **Renumeración segura.** La única referencia externa a un número del roadmap es "item 3", en `E-capa-agentica.md`, y sigue siendo válida.
+
+## [1.4.3] feat(deps): 4ª capa del audit — runtime PHP/FrankenPHP (Trivy no ve a PHP)
+**Hash:** el del commit que agrega esta entrada (self-referencial; fijar el SHA exacto re-amendaría y lo cambiaría otra vez)
+**Rama:** `main`
+**Fecha:** 2026-10-24
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `scripts/oliva/deps.sh` | modificado | Capa `runtime` nueva: `check_runtime` (orquesta + guarda C1 base-no-frankenphp), `check_php_runtime` (DURO: rama en php.net, `rc=1` si hay patch más nuevo; guardas C2 tag ilegible / C3 versión no figura en php.net), `check_frankenphp_runtime` (BLANDO: frescura vs. último release de GitHub, con `curl -L`). `report_runtime` informativo. Cableada en `cmd_audit` (afecta exit code vía PHP) y `cmd_report`. Localiza sus libs por `BASH_SOURCE` (no `$0`) y el dispatcher va tras guarda `[[ BASH_SOURCE == $0 ]]` para sourcear en tests. |
+| `README.md` | modificado | §3: de tres a cuatro capas; corregido el texto que atribuía el runtime de PHP a Trivy; 4º bullet del runtime compilado, en positivo. |
+| `docs/oliva/actualizaciones.md` | modificado | Tabla de capas: 4ª fila (runtime compilado) + párrafo del hueco (Trivy no ve PHP) y el diseño duro/blando. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección `## 1.4.3`: acción requerida en forks (ninguna, archivo owned) + qué cambió. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**El hallazgo no obvio: Trivy no ve a PHP.** En la imagen de FrankenPHP, PHP y el propio
+servidor salen **compilados del source**, no figuran como paquete, y Trivy no los matchea
+contra ninguna CVE DB. Se probó empíricamente (Trivy 0.72.0 sobre la imagen vulnerable a
+PHP2Shell → 0 rastro). `composer`/`yarn audit` tampoco (PHP no es paquete). El único aviso
+posible era `deps report` mostrando el bump de imagen cada ~45 días, sin marca de seguridad.
+O sea: el sistema de tres capas no hubiera cazado PHP2Shell. Esta capa cierra ese runtime.
+
+**Qué resuelve y qué no (sin disclaimer de meteoritos, decisión de Marcos).** No es detección
+de lo no publicado — eso es imposible y nadie lo hace. Avisa cuando el upstream **ya publicó**
+un patch más nuevo, que es la ventana n-day donde pasa casi todo el ataque real. Es exactamente
+el upgrade "una vez identificado por la comunidad, parcheable por esta vía".
+
+**Por qué duro para PHP y blando para FrankenPHP.** Separado por confianza de la fuente, no por
+proyecto. php.net lista cada release de la rama con fuente limpia → chequeo duro que falla el
+audit. El módulo Go de FrankenPHP sale pseudo-versionado (`v0.0.0-…`) y no se matchea con
+advisories con confianza → solo frescura, aviso blando que no falla. Es un flag menor, presente
+pero sin pretender que resuelve advisories (no se entierra).
+
+**El punto sensible: el parseo del `FROM`.** Si no se puede confiar en el parseo, NO se reporta
+"al día" — un falso verde es peor que no tener la capa. Tres guardas que avisan y saltean, nunca
+pasan en silencio: C1 base que no es frankenphp, C2 tag ilegible, C3 la versión pinneada no
+figura en php.net para esa rama (parseo roto o rama EOL). Probado con 7 casos contra php.net y
+GitHub reales: pin viejo `8.3.35` → `rc=1` marcando `8.3.36`; pin actual `8.3.36` → verde;
+bogus/basura/base-node → warn+skip rc=0; FrankenPHP `1.13.2` → aviso blando `→ 1.13.3`.
+
+**Dos fallas derivadas encontradas en el camino.** (1) `dunglas/frankenphp` hace 301 redirect
+(el repo se movió) → sin `curl -L` volvía `null`; la capa blanda lo usa. (2) Para testear sin
+docker, `deps.sh` se hizo sourceable (guarda `BASH_SOURCE` + locate de libs por `BASH_SOURCE`),
+sin cambio de comportamiento al ejecutarlo normal.
+
+**No se tocó `OLIVA_VERSION` ni se corrió `release.sh`.** La sección de UPGRADING queda lista
+para que `release.sh 1.4.3` la exija al publicar, cuando Marcos lo pida.

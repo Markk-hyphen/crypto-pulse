@@ -55,13 +55,14 @@ The operating rules travel with the code. [`AGENTS.md`](AGENTS.md) is the open f
 
 ### 3. Staying patched is the default
 
-Freshness and security run on separate clocks. The dependency cycle (`./oliva deps report` → `deps update`) comes due every ~45 days. A CVE doesn't wait for it: `./oliva deps audit` checks three layers, and `doctor` reminds you once a week has passed.
+Freshness and security run on separate clocks. The dependency cycle (`./oliva deps report` → `deps update`) comes due every ~45 days. A CVE doesn't wait for it: `./oliva deps audit` checks four layers, and `doctor` reminds you once a week has passed.
 
 - **PHP packages:** `composer audit`.
 - **JS packages:** `yarn audit`.
-- **Inside the base images:** [Trivy](https://trivy.dev/) scans OS packages and binaries, which is where a PHP-runtime or libc CVE lives and the one layer the package audits can't see.
+- **Inside the base images:** [Trivy](https://trivy.dev/) scans each base image's OS packages and binaries — where a libc or OpenSSL CVE lives — the layer the package audits can't see.
+- **The compiled runtime:** PHP and the FrankenPHP server are built from source, so they're a package to no scanner — Trivy included. This layer reads the versions pinned in the backend `FROM` and compares them upstream: PHP against its release branch on php.net, FrankenPHP against its latest GitHub release.
 
-There's one source per layer, never stacked. Trivy is version-pinned and run as a container, not through a floating action tag. Every app runs the same audit, so a CVE means one command per app instead of per-repo archaeology. This tells you a fix is waiting for something you pinned; it's not runtime protection.
+There's one authoritative source per layer, never stacked. Trivy is version-pinned and run as a container, not through a floating action tag. Every app runs the same audit, so a CVE means one command per app instead of per-repo archaeology. Each layer points you at a published fix waiting for something you pinned.
 
 ### 4. Several apps on one small server
 
