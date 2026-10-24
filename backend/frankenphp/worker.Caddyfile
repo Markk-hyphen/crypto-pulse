@@ -1,4 +1,9 @@
 worker {
 	file ./public/index.php
 	env APP_RUNTIME Runtime\FrankenPhpSymfony\Runtime
+	# Reciclado del worker: tras N requests el proceso se reinicia para acotar memory
+	# leaks acumulativos (un leak en worker mode crece hasta el reinicio, no muere con el
+	# request como en clásico). 500 es el default del runtime (Runtime.php) — lo fijamos
+	# explícito acá para que sea visible y tuneable, no un número mágico escondido.
+	env FRANKENPHP_LOOP_MAX 500
 }

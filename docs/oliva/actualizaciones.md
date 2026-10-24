@@ -51,7 +51,8 @@ commit `chore(deps)`. Cuando toca:
 3. **A mano, un commit por salto** (lo que el report marcó ⛔/⇑/↑ en imágenes): editar el
    `FROM`/`image:`/constraint, `scripts/oliva/verify.sh`, commit `chore(deps): …`. Nunca dos
    saltos grandes juntos: si algo se rompe, tiene que quedar claro cuál fue.
-4. Mergear la rama a `main` local, escribir la sección en `docs/oliva/UPGRADING.md` y
+4. Mergear la rama a `main` local, escribir la sección en `docs/oliva/UPGRADING.md` (con las
+   acciones etiquetadas, ver "Acciones de upgrade" abajo) y
    **`scripts/oliva/release.sh X.Y.Z`** (patch = solo deps; minor = features o pasos para forks;
    major = rompe algo que el fork tiene que reescribir). `git push origin main vX.Y.Z`.
 
@@ -82,12 +83,29 @@ viene de cubrir **capas distintas**, cada una con una buena fuente:
 |---|---|---|
 | Paquetes PHP (`composer.lock`) | Symfony, Doctrine, … | `composer audit` → Packagist/GHSA |
 | Paquetes JS (`yarn.lock`) | Vite y su árbol | `yarn audit` → GHSA |
-| **Imágenes base** | **SO + binarios DENTRO de la imagen** (OpenSSL del postgres, el binario de Caddy en FrankenPHP, …) | **Trivy** (DB propia ≈ GHSA + NVD + distros) |
+| **Imágenes base** | **SO + binarios DENTRO de la imagen** (OpenSSL del postgres, libc, …) | **Trivy** (DB propia ≈ GHSA + NVD + distros) |
+| **Runtime compilado** | **PHP y el binario de FrankenPHP** — compilados del source, no son paquete de nadie | **php.net** (rama de release) + **releases de GitHub** (FrankenPHP) |
 
-La capa de imágenes era el agujero: `composer`/`yarn audit` ven los *paquetes* de la
-app, nunca lo que vive adentro de la imagen base. Trivy la cierra. `deps.sh audit`
-corre las tres; `deps.sh report` incluye la de Trivy en la foto completa; y el CI
-tiene un job `image-scan` (report-only) con la misma versión pinneada de Trivy.
+La capa de imágenes cerró un agujero (`composer`/`yarn audit` ven los *paquetes* de
+la app, nunca lo que vive adentro de la imagen base). Pero dejó otro, y se comprobó
+empíricamente: **Trivy no ve a PHP**. En la imagen de FrankenPHP, PHP y el propio
+servidor FrankenPHP salen **compilados del source**, así que no figuran como paquete
+y Trivy no los matchea contra ninguna CVE DB (probado: no detectó PHP2Shell en la
+imagen vulnerable). La 4ª capa cubre ese runtime leyendo las versiones pinneadas en el
+`FROM` del backend y comparándolas contra el upstream — no hace advisory-matching
+(imposible con confianza: el módulo Go de FrankenPHP sale pseudo-versionado), avisa
+cuando el upstream **ya publicó** un patch más nuevo:
+
+- **PHP → chequeo duro** (falla el audit): ¿hay un patch más nuevo en la rama contra
+  php.net? Doble verificación contra falso verde: si la versión pinneada no figura en
+  php.net para esa rama (parseo erróneo o rama EOL), **avisa y saltea** — nunca reporta
+  "al día" sin poder verificarlo. Igual ante base que no es frankenphp o tag ilegible.
+- **FrankenPHP → aviso blando** (no falla el audit): solo frescura contra el último
+  release de GitHub. Es un flag menor, presente pero sin pretender que resuelve advisories.
+
+`deps.sh audit` corre las cuatro; `deps.sh report` incluye las de Trivy y runtime en la
+foto completa; y el CI tiene un job `image-scan` (report-only) con la misma versión
+pinneada de Trivy.
 
 Detalles operativos: Trivy corre como **contenedor pinneado** (nada que instalar en
 el host), escanea el **ref base** fijado (no la imagen prod buildeada: ahí viven casi
@@ -117,6 +135,28 @@ ya mergeó Oliva ≥ 1.1.0 al menos una vez (ese primer merge trae los scripts; 
    se regenera contra el `package.json` del fork.
 4. `git add -A && git commit --no-edit` → **`scripts/oliva/sync.sh verify`** → si pasa,
    `git switch main && git merge --no-ff chore/oliva-sync-…`. Push y deploy, como siempre.
+5. **Acciones de upgrade que quedan** (desde 1.5.0). Después del merge `check` ya dice "al
+   día" y las notas no vuelven a aparecer; lo que sigue pendiente lo muestra `./oliva doctor`
+   ("acciones de upgrade") en el checkout de desarrollo, y `deploy*.sh` en cada host (las
+   `[host]`). Se hacen y se reconocen **en cada máquina** con `./oliva ack`
+   (`.oliva/acked-version`, gitignored). Los ítems con guard no se reconocen: el guard avisa en
+   `verify`/`deploy` mientras el estado esté mal (`scripts/lib/upgrade-guards.sh`).
+
+### Acciones de upgrade: por qué no alcanza con escribirlas
+
+Las notas de `UPGRADING.md` se veían en un solo momento (antes del merge) y las lee casi
+siempre un agente en medio de un sync. Lo que se hace en esa sesión se cumple; lo que se hace
+después o en otra máquina (el `.env` del VPS, al deployar días más tarde) se perdía: en
+finanzas-ong, los pendientes de host de 1.4.2 y 1.4.3 solo sobrevivieron porque el agente los
+anotó en su memoria. El aviso no puede depender de que alguien se acuerde: lo da la tooling que
+igual se corre (`verify`, `deploy`, `doctor`), y lo que no se puede chequear sigue apareciendo
+hasta un `ack` explícito.
+
+Por eso cada acción lleva etiqueta de lugar (`merge`/`local`/`host`/`decisión`) y, si se puede,
+`guard: <id>` (formato en la cabecera de `UPGRADING.md`; `release.sh` lo valida). Al escribir
+un release, el orden de preferencia es: que el cambio no le pida nada al fork > guard >
+etiqueta sin guard > texto suelto. Casi todo lo "manual" es estado que vive donde git no llega,
+y eso se puede chequear donde vive. Un guard **solo avisa**, nunca aborta un deploy.
 
 **Por qué merge y no rebase ni cherry-pick:** el merge preserva los hashes que registra
 `agent-commits.md`, deja un punto de sync explícito en la historia y hace que el próximo merge

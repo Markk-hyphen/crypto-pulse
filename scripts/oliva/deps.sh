@@ -19,8 +19,11 @@
 # `audit` cubre la capa que composer/yarn audit no ven: el SO y los binarios DENTRO de
 # las imágenes base (Trivy). Fuentes: una por capa, no apiladas (ver docs/oliva/actualizaciones.md).
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
-source "$(dirname "$0")/../lib/docker-prune.sh"
+# BASH_SOURCE (no $0) para que el locate de libs funcione igual al ejecutar y al sourcear
+# (los tests sourcean este archivo para probar las funciones de runtime; ver guarda al final).
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$_here/lib.sh"
+source "$_here/../lib/docker-prune.sh"
 require_repo_root
 
 DUE_DAYS="${OLIVA_DEPS_DUE_DAYS:-45}"
@@ -218,6 +221,103 @@ report_trivy() {
   echo "   (pin de Trivy: bumpearlo en el ciclo como cualquier imagen base)"
 }
 
+# ── runtime (PHP / FrankenPHP) ─────────────────────────────────────────────────────
+# La capa que NI composer/yarn audit NI Trivy ven: el runtime compilado del source dentro
+# de la imagen base. PHP y el binario de FrankenPHP salen compilados (no como paquetes),
+# así que Trivy no los matchea contra ninguna CVE DB — probado: no detectó PHP2Shell. Esta
+# capa avisa cuando el upstream ya publicó un patch más nuevo (no es ni pretende ser detección
+# de lo no publicado — eso no existe). Una fuente autoritativa por runtime, no advisory-matching:
+#   - PHP: php.net lista cada release de la rama; chequeo DURO = ¿hay un patch más nuevo?
+#   - FrankenPHP: releases de GitHub; chequeo BLANDO (solo frescura, avisa sin fallar el audit) —
+#     su módulo Go sale pseudo-versionado (v0.0.0-…) y no se matchea con advisories con confianza.
+#
+# El dato sale del tag del FROM (dunglas/frankenphp:<franken>-php<php>), que es el punto
+# SENSIBLE: si no se puede confiar en el parseo, NO se reporta "al día" (eso sería un falso
+# verde, peor que no tener la capa). Cada guarda que no puede verificar AVISA y se saltea.
+check_runtime() {
+  local rc=0 ref tag
+  ref="$(backend_base_image 2>/dev/null || true)"
+  # C1 — ¿es la imagen frankenphp? Si un fork cambió la base, el parseo "phpX.Y.Z" no aplica.
+  if [[ -z "$ref" || "$ref" != *frankenphp* ]]; then
+    warn "runtime: la imagen base del backend no es frankenphp (ref: '${ref:-vacío}') — capa de runtime salteada"
+    return 0
+  fi
+  tag="${ref##*:}"                      # 1.13.2-php8.3.36
+  check_php_runtime "$tag" || rc=1      # DURO: puede poner rc=1
+  check_frankenphp_runtime "$tag" || true   # BLANDO: nunca cambia rc
+  return $rc
+}
+
+# DURO: 1 si hay un patch de PHP más nuevo en la misma rama. Doble verificación contra falso
+# verde — la versión pinneada TIENE que figurar en php.net para esa rama; si no, el parseo o
+# la rama están mal → avisa y saltea (no reporta "al día").
+check_php_runtime() {
+  local tag="$1" php branch body versions newer v tags vdate
+  # C2 — extraer X.Y.Z de "…-phpX.Y.Z". Regex estricto: 3 componentes numéricos.
+  php="$(grep -oE 'php[0-9]+\.[0-9]+\.[0-9]+' <<<"$tag" | head -1 | sed 's/^php//' || true)"
+  if [[ -z "$php" ]]; then
+    warn "runtime PHP: no pude extraer la versión de PHP del tag '$tag' (¿cambió el formato del FROM?) — salteado"
+    return 0
+  fi
+  branch="${php%.*}"                    # 8.3.36 → 8.3
+  body="$(curl -fsS "https://www.php.net/releases/?json&version=${branch}&max=100" 2>/dev/null || true)"
+  if [[ -z "$body" ]] || ! jq -e . >/dev/null 2>&1 <<<"$body"; then
+    warn "runtime PHP: no pude consultar php.net para la rama $branch (¿red?) — salteado (NO es 'al día')"
+    return 0
+  fi
+  # Solo versiones de ESTA rama (defensa extra aunque la API ya filtra), ordenadas ascendente.
+  versions="$(jq -r 'keys_unsorted[]' <<<"$body" | grep -E "^${branch//./\\.}\.[0-9]+$" | sort -V || true)"
+  # C3 — la versión pinneada DEBE estar en la lista; si no, no confío en la comparación.
+  if ! grep -qxF "$php" <<<"$versions"; then
+    warn "runtime PHP: la versión pinneada $php no figura en php.net/${branch} (¿parseo erróneo o rama EOL?) — salteado (NO es 'al día')"
+    return 0
+  fi
+  # Lo posterior al pin en orden de versión = los patches más nuevos de la rama.
+  newer="$(awk -v pin="$php" 'found; $0==pin{found=1}' <<<"$versions")"
+  if [[ -z "$newer" ]]; then
+    echo "   ✓  PHP $php: al día en la rama $branch"
+    return 0
+  fi
+  echo "   ⛔ PHP $php: hay patch(es) más nuevo(s) en la rama $branch — bumpear la imagen frankenphp del FROM:"
+  while read -r v; do
+    [[ -z "$v" ]] && continue
+    tags="$(jq -r --arg v "$v" '.[$v].tags // [] | join(",")' <<<"$body" 2>/dev/null || true)"
+    vdate="$(jq -r --arg v "$v" '.[$v].date // "?"' <<<"$body" 2>/dev/null || true)"
+    echo "        → PHP $v (${vdate:-?}${tags:+, $tags})"
+  done <<<"$newer"
+  return 1
+}
+
+# BLANDO: solo frescura contra el último release de GitHub; NUNCA cambia el rc del audit.
+# No matchea advisories (el módulo Go sale pseudo-versionado). GitHub 301-redirige
+# dunglas/frankenphp (el repo se movió) → curl -L es obligatorio o vuelve null.
+check_frankenphp_runtime() {
+  local tag="$1" cur latest newest
+  cur="$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' <<<"$tag" | head -1 || true)"
+  if [[ -z "$cur" ]]; then
+    warn "runtime FrankenPHP: no pude extraer la versión del tag '$tag' — salteado"
+    return 0
+  fi
+  latest="$(curl -fsSL "https://api.github.com/repos/dunglas/frankenphp/releases/latest" 2>/dev/null \
+            | jq -r '.tag_name // empty' 2>/dev/null | sed 's/^v//' || true)"
+  if [[ -z "$latest" ]]; then
+    warn "runtime FrankenPHP: no pude consultar los releases de GitHub — salteado"
+    return 0
+  fi
+  newest="$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -1)"
+  if [[ "$cur" == "$latest" || "$newest" == "$cur" ]]; then
+    echo "   ✓  FrankenPHP $cur: al día (último release $latest)"
+  else
+    echo "   ⚠️  FrankenPHP $cur → $latest disponible (solo frescura, no es un advisory; flag menor)"
+  fi
+  return 0
+}
+
+report_runtime() {
+  echo "## Runtime PHP / FrankenPHP (compilados del source — invisibles a Trivy)"
+  check_runtime || true   # en el reporte es informativo; el exit code lo maneja `audit`
+}
+
 cmd_report() {
   echo "# Reporte de dependencias — $(basename "$PWD") (Oliva $(local_oliva_version)) — $(date +%F)"
   echo
@@ -226,12 +326,14 @@ cmd_report() {
   report_composer; echo
   report_yarn; echo
   report_actions; echo
-  report_trivy
+  report_trivy; echo
+  report_runtime
 }
 
 # ── audit ────────────────────────────────────────────────────────────────────────
 # Solo CVEs, a demanda, fuera del ciclo de 45 días. Una fuente por capa: composer audit
-# (paquetes PHP), yarn audit (paquetes JS), Trivy (SO + binarios de las imágenes base).
+# (paquetes PHP), yarn audit (paquetes JS), Trivy (SO + binarios de las imágenes base) y
+# runtime (PHP/FrankenPHP compilados del source, que Trivy no ve — ver check_runtime).
 # Siempre deja la fecha en AUDIT_STATE (lo que mira `due`): el estado es "cuándo corriste
 # audit", no "quedó limpio" — los CVEs encontrados ya los viste en la salida.
 cmd_audit() {
@@ -246,6 +348,9 @@ cmd_audit() {
   echo
   echo "## Imágenes base (Trivy ${TRIVY_VERSION}, HIGH/CRITICAL con fix)"
   scan_images || { rc=1; warn "Trivy reporta CVEs en imágenes base"; }
+  echo
+  echo "## Runtime PHP / FrankenPHP (compilados del source — invisibles a Trivy)"
+  check_runtime || { rc=1; warn "runtime: PHP está atrás en su rama (ver arriba)"; }
 
   mkdir -p "$(dirname "$AUDIT_STATE")"
   date +%F > "$AUDIT_STATE"
@@ -267,6 +372,7 @@ cmd_scan_images() {
 # ── update ─────────────────────────────────────────────────────────────────────
 cmd_update() {
   require_clean_tree
+  require_bounded_constraints
   local branch before after
   branch="chore/deps-$(date +%F)"
   git switch -c "$branch"
@@ -285,7 +391,12 @@ cmd_update() {
 
   ( cd backend && jq -r '(.packages + ."packages-dev")[] | "\(.name) \(.version)"' composer.lock | sort ) > "$after"
   local summary
-  summary="$(join -a2 -e '(nuevo)' -o '0,1.2,2.2' "$before" "$after" | awk '$2!=$3 {print "- " $1 ": " $2 " → " $3}')"
+  # ⇑ MAJOR: los techos frenan majors de las deps DIRECTAS; una transitiva puede saltar si la
+  # directa declara compatibilidad (orm acepta dbal ^3 || ^4). Mirar el changelog antes de mergear.
+  # En 0.x el "major" es el minor (semver de composer: ^0.4 = 0.4.*).
+  summary="$(join -a2 -e '(nuevo)' -o '0,1.2,2.2' "$before" "$after" | awk '
+    function major(v,  p) { sub(/^v/, "", v); split(v, p, "."); return p[1] == "0" ? p[1] "." p[2] : p[1] }
+    $2 != $3 { m = ($2 != "(nuevo)" && major($2) != major($3)) ? "  ⇑ MAJOR" : ""; print "- " $1 ": " $2 " → " $3 m }')"
   echo "$summary"
 
   info "audit"
@@ -313,11 +424,15 @@ EOF
   rm -f "$before" "$after"
 }
 
-case "${1:-}" in
-  due)         cmd_due ;;
-  report)      cmd_report ;;
-  update)      cmd_update ;;
-  audit)       cmd_audit ;;
-  scan-images) cmd_scan_images ;;
-  *) sed -n '3,18p' "$0"; exit 1 ;;
-esac
+# Dispatcher solo al EJECUTAR el script; al sourcearlo (tests) no corre, para poder
+# llamar las funciones de runtime con tags fabricados sin disparar un subcomando.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-}" in
+    due)         cmd_due ;;
+    report)      cmd_report ;;
+    update)      cmd_update ;;
+    audit)       cmd_audit ;;
+    scan-images) cmd_scan_images ;;
+    *) sed -n '3,18p' "$0"; exit 1 ;;
+  esac
+fi

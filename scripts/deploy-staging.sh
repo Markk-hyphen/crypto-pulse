@@ -20,6 +20,7 @@ STAGING_PROJECT="${APP_NAME}-staging"
 
 source "$(dirname "$0")/lib/project-guard.sh"
 source "$(dirname "$0")/lib/docker-prune.sh"
+source "$(dirname "$0")/lib/upgrade-guards.sh"
 assert_not_staging_name "$APP_NAME"
 assert_project_owned_here "$STAGING_PROJECT"
 
@@ -31,13 +32,17 @@ COMPOSE=(docker compose -p "$STAGING_PROJECT"
 
 echo ">> Deploy de STAGING '$STAGING_PROJECT' desde $PWD"
 
+# Antes del pull: mismo motivo que en deploy.sh (sembrar el estado de acciones de upgrade).
+seed_acked_version
+
 if [[ "${SKIP_PULL:-0}" != "1" ]]; then
   echo ">> git pull"
   git pull
 fi
 
 echo ">> down"
-COMPOSE_PROFILES=cron "${COMPOSE[@]}" down --remove-orphans
+# --profile '*': mismo motivo que en deploy.sh (bajar todos los servicios con profile).
+"${COMPOSE[@]}" --profile '*' down --remove-orphans
 
 # build-everything (no enumerar servicios): enumerar es lo frágil — es lo que
 # en finanzas-ong dejó el frontend STALE (build solo listaba backend) y se
@@ -57,6 +62,9 @@ echo ">> estado:"
 
 # La imagen que se acaba de reemplazar queda sin tag: sin esto, cada deploy suma ~750 MB.
 prune_build_leftovers
+
+run_upgrade_guards "${COMPOSE[@]}"
+show_pending_upgrade_actions host || true
 
 echo ">> OK — staging corriendo en project '${STAGING_PROJECT}'."
 echo "   DB de staging es desechable. Para reiniciar con datos frescos:"
