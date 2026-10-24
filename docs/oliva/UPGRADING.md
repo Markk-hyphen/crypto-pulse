@@ -20,14 +20,35 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 > que no es frankenphp, tag ilegible, o versión que no figura en php.net), avisa y saltea; nunca
 > reporta "al día" sin confirmarlo.
 
+> **Worker mode de FrankenPHP: ON por defecto en prod (fix de un apagado silencioso).** La
+> imagen `frankenphp_prod` siempre horneó `FRANKENPHP_CONFIG=import worker.Caddyfile`, pero
+> `.env.example` shipeaba `FRANKENPHP_CONFIG=` vacío en el `env_file` base. Ese env_file aplica
+> a TODOS los entornos y pisa el `ENV` de la imagen (`environment:`/`env_file:` ganan sobre el
+> `ENV` horneado), así que worker mode venía APAGADO en prod sin ningún error: `/health` daba ok
+> igual. Se quitó la variable del template; ahora gana el valor de la imagen (dev=clásico,
+> prod=worker). Opt-out deliberado a clásico: `FRANKENPHP_CONFIG=` vacío en el `environment:` de
+> `docker-compose.prod.yml`, NUNCA en `.env` (ver `backend/docs/production.md`).
+
 **Acción requerida en el fork**
 
-- Ninguna. `scripts/oliva/deps.sh` es OLIVA-owned y baja con el merge. El próximo
+- **Worker mode — borrar `FRANKENPHP_CONFIG` del `.env` del host.** El fix saca la variable de
+  `.env.example`, pero tu `.env` real es gitignored: si lo copiaste de un `.env.example` viejo,
+  todavía tiene la línea `FRANKENPHP_CONFIG=` y seguirá apagando worker mode. Borrala en **los dos**
+  `.env` que importan: el local y el del **host en el VPS** (el que lee `scripts/deploy.sh`). Verificá
+  después del deploy que worker arrancó: `docker logs <app>-backend-1 2>&1 | grep -i worker` debe
+  mostrar el arranque del worker. Si querés seguir en clásico a propósito, movelo al `environment:`
+  de `docker-compose.prod.yml` (no al `.env`).
+- Audit de runtime: ninguna. `scripts/oliva/deps.sh` es OLIVA-owned y baja con el merge. El próximo
   `./oliva deps audit` del fork corre también la capa de runtime; como el `FROM` del backend
   también es owned, el fork hereda el mismo pin de PHP/FrankenPHP y verá lo mismo que Oliva.
 
 **Qué cambió**
 
+- Worker mode: se quita `FRANKENPHP_CONFIG=` de `.env.example` (y del `.env` de desarrollo del repo).
+  `backend/frankenphp/worker.Caddyfile` fija `FRANKENPHP_LOOP_MAX 500` explícito (era el default
+  implícito del runtime). Guard nuevo en CI (job `prod-config`: el stack prod no debe resolver
+  `FRANKENPHP_CONFIG=''`) y en `verify.sh` (step `prod-worker`: la imagen prod hornea el valor).
+  `backend/docs/production.md`: nota de opt-out corregida.
 - `scripts/oliva/deps.sh`: capa `runtime` nueva (`check_runtime` + `check_php_runtime` duro +
   `check_frankenphp_runtime` blando), cableada en `audit` (afecta el exit code vía PHP) y en
   `report` (informativa). FrankenPHP usa `curl -L`: `dunglas/frankenphp` hace 301 redirect.

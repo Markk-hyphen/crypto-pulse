@@ -472,13 +472,19 @@ el EntityManager de Doctrine, loggers con buffer, etc.). Por defecto FrankenPHP 
 - **Prod:** la intención es worker — `frankenphp_prod` setea
   `FRANKENPHP_CONFIG="import worker.Caddyfile"` y el `Caddyfile` lo inyecta en el bloque
   global `frankenphp { {$FRANKENPHP_CONFIG} }`.
-- **⚠️ Hallazgo 2026-10-23:** en la práctica prod corre **clásico**. `backend` carga
-  `env_file: .env`, y `.env.example` trae `FRANKENPHP_CONFIG=` vacío: una variable de
+- **⚠️ Hallazgo 2026-10-23:** en la práctica prod corría **clásico**. `backend` carga
+  `env_file: .env`, y `.env.example` traía `FRANKENPHP_CONFIG=` vacío: una variable de
   `env_file` pisa el `ENV` de la imagen aunque esté vacía (es literalmente la forma que el
   template original documenta para *desactivar* el worker, `backend/docs/production.md`).
   `docker compose -f docker-compose.yml -f docker-compose.prod.yml config backend` lo
-  muestra: `FRANKENPHP_CONFIG: ""`. Silent failure: todo arranca y `/health` da ok. Fix
-  pendiente (1.4.3).
+  mostraba: `FRANKENPHP_CONFIG: ""`. Silent failure: todo arranca y `/health` da ok.
+- **✅ Resuelto en 1.4.3:** se quitó `FRANKENPHP_CONFIG` del `env_file` (`.env.example` + `.env`),
+  así gana el valor horneado por imagen (dev=clásico, prod=worker). El opt-out a clásico pasó a ser
+  deliberado: `FRANKENPHP_CONFIG=` vacío en el `environment:` de `docker-compose.prod.yml`, no en el
+  `.env`. Tres guardas contra la regresión: CI (`prod-config`: el stack prod no resuelve la variable
+  a vacío), `verify.sh` (`prod-worker`: la imagen prod hornea el valor) y la prueba empírica de
+  levantar prod local y ver el arranque del worker en los logs. `FRANKENPHP_LOOP_MAX` (reciclado del
+  worker, default 500) quedó explícito en `worker.Caddyfile`. Pendiente: E2E bajo carga real en el VPS.
 
 ### No confundir con el `worker` de Messenger
 

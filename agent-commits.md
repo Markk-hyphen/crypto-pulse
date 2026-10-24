@@ -613,3 +613,63 @@ sin cambio de comportamiento al ejecutarlo normal.
 
 **No se tocó `OLIVA_VERSION` ni se corrió `release.sh`.** La sección de UPGRADING queda lista
 para que `release.sh 1.4.3` la exija al publicar, cuando Marcos lo pida.
+
+---
+
+## [PASO 4.1] fix(prod): worker mode de FrankenPHP ON por defecto — quitar el apagado silencioso del env_file
+**Hash:** `f394cc50fc8c84a788d6f42b7edc144af20c6137`
+**Rama:** `main`
+**Fecha:** 2026-10-24
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `.env.example` | modificado | Quitada la línea `FRANKENPHP_CONFIG=` (vacía). Reemplazada por un comentario que explica por qué NO debe definirse acá. |
+| `backend/frankenphp/worker.Caddyfile` | modificado | `env FRANKENPHP_LOOP_MAX 500` explícito (era el default implícito del runtime Symfony). |
+| `.github/workflows/ci.yml` | modificado | Job `prod-config`: step nuevo que falla si el stack prod resuelve `FRANKENPHP_CONFIG=''` a nivel compose. |
+| `scripts/oliva/verify.sh` | modificado | Step `prod-worker`: tras `prod-build`, verifica que la imagen prod hornee `FRANKENPHP_CONFIG=import worker.Caddyfile` (inspect de ENV). |
+| `backend/docs/production.md` | modificado | Nota de opt-out corregida: worker ON por imagen; para clásico, var vacía en el `environment:` de `prod.yml`, NUNCA en `.env`. |
+| `docs/oliva/UPGRADING.md` | modificado | Sección 1.4.3: acción requerida para forks (borrar `FRANKENPHP_CONFIG` del `.env` del host, local y VPS) + qué cambió. |
+| `docs/concepts.md` | modificado | Hallazgo 2026-10-23 cerrado: de "Fix pendiente" a "✅ Resuelto en 1.4.3" con el cómo y las tres guardas. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+(El `.env` local de desarrollo quedó alineado —línea quitada— pero es gitignored y no entra en el commit.)
+
+### Justificación
+**El bug (confirmado en código, no en memoria).** La imagen `frankenphp_prod` siempre horneó
+`ENV FRANKENPHP_CONFIG="import worker.Caddyfile"` → worker mode. Pero `backend` carga
+`env_file: [.env, .env.backend]`, y `.env.example` shipeaba `FRANKENPHP_CONFIG=` vacío. En
+Compose, una variable de `env_file` **pisa el `ENV` de la imagen aunque esté vacía**. Resultado:
+prod corría clásico, en silencio (`/health` daba ok igual). No es teórico y no se había
+ejercitado en ningún lado: CI levanta solo dev (clásico a propósito), staging hereda de prod
+(mismo override), y no hay commits que lo probaran — solo docs.
+
+**El fix (mínimo, alineado al upstream).** `backend/docs/production.md` del template original ya
+documentaba el opt-out correcto: apagar worker = agregar `FRANKENPHP_CONFIG` vacío al
+`environment:` de `prod.yml` (deliberado, por deploy). Oliva lo había roto al shipear el vacío en
+el `env_file` base (global a todos los entornos). El fix es sacar esa línea: gana el valor
+horneado por imagen (dev=clásico, prod=worker). Cero código PHP nuevo.
+
+**Decisión de diseño (con Marcos).** Opt-out a clásico = la vía documentada (línea explícita en
+`prod.yml`), NO un flag con nombre propio (`FRANKENPHP_WORKER=on|off`). Menos superficie que
+mantener y sincronizar a forks; el único cambio es dejar de shipear el apagado accidental.
+
+**Tres guardas contra la regresión** (porque `docker compose config` NO ve el `ENV` de la imagen,
+cada capa cubre una mitad): (1) CI `prod-config` — el compose no debe resolver la var a vacío;
+(2) `verify.sh prod-worker` — la imagen debe hornear el valor; (3) prueba empírica de levantar
+prod local. Juntas prueban "worker on en prod" sin levantar un stack prod completo en CI.
+
+**Verificación empírica (prod local, 2026-10-24).** Build + up del stack prod standalone:
+`worker_threads: 16` en el arranque de FrankenPHP (en clásico sería 0) ⬅️ la prueba que faltaba;
+`/health` ok; migraciones up-to-date; Mercure 200 + pub/sub privado entregado solo al suscriptor
+con token (sin fuga) bajo worker mode; 0 de 300 requests no-200 (reuso de proceso/conexión sano).
+
+**Pendiente (no bloquea el fix).** (1) E2E bajo carga real en el VPS y reciclado sostenido: el
+boundary de `FRANKENPHP_LOOP_MAX=500` no es testeable local (16 threads → ~8000 requests para
+forzar un respawn); el loop es código canónico del runtime upstream. (2) Test de fuga de identidad
+fino: Oliva no tiene endpoint autenticado de dominio (solo `HealthController`) — es chequeo de
+cada fork con auth real. (3) Migración de forks: borrar `FRANKENPHP_CONFIG` del `.env` del host
+(gitignored, el merge no lo limpia) — ya escrito en `UPGRADING.md` 1.4.3.
+
+**No se tocó `OLIVA_VERSION` ni se corrió `release.sh`.** Este cambio cierra el segundo frente de
+1.4.3 (el primero fue la 4ª capa del audit, `61eb6bc`); el release se publica cuando Marcos lo pida.

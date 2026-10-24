@@ -145,6 +145,20 @@ jobs:
             || { echo "::error::scheduler APP_ENV != 'prod' en docker-compose.prod.yml"; exit 1; }
           echo "✓ backend y scheduler resuelven APP_ENV=prod"
 
+      -
+        name: Worker mode de FrankenPHP NO apagado a nivel compose (backend)
+        # El bug de 1.4.3: la imagen prod hornea FRANKENPHP_CONFIG="import worker.Caddyfile",
+        # pero un FRANKENPHP_CONFIG='' en el env_file base (.env/.env.example) lo pisaba y
+        # apagaba worker mode en silencio. `config` NO ve el ENV de la imagen, así que el
+        # guard correcto es el inverso: que el stack prod no resuelva la variable a vacío.
+        # Ausente = OK (gana el default horneado). Vacío = el apagado accidental vuelve.
+        # (Opt-out deliberado a clásico: ver backend/docs/production.md — rompería este guard
+        #  a propósito, que es justo cuándo conviene que alguien lo mire.)
+        run: |
+          jq -e '(.services.backend.environment.FRANKENPHP_CONFIG // "unset") != ""' prod-config.json > /dev/null \
+            || { echo "::error::backend resuelve FRANKENPHP_CONFIG='' en el stack prod — worker mode quedaría APAGADO (regresión del bug de 1.4.3). No definir FRANKENPHP_CONFIG en .env/.env.example."; exit 1; }
+          echo "✓ worker mode no está apagado a nivel compose"
+
   composer-constraints:
     # Guarda barata (sin build): falla si backend/composer.json tiene un constraint sin
     # techo (`*`, `>=x`, `dev-main`), que deja a `composer update` instalar un major sin

@@ -17,6 +17,9 @@
 #   [schema]      doctrine:schema:validate (CMP lo saltea: drift conocido de pgvector)
 #   [phpunit]     suite completa
 #   [prod-build]  buildea las imágenes de prod (composer --no-dev, dump-env, vite build)
+#   [prod-worker] la imagen de prod hornea worker mode de FrankenPHP (FRANKENPHP_CONFIG).
+#                 Mitad complementaria del guard del CI (que verifica que el compose no lo
+#                 pise a vacío): acá, que el valor exista en la imagen. Juntos = worker on.
 #   [ci-build]    rebuildea el backend con el driver buildx del CI (docker-container). SOLO
 #                 si backend/php-extensions.txt tiene extensiones: es el camino donde el
 #                 driver local y el del CI se comportan distinto (ej. /tmp en 755 → exit 100,
@@ -48,6 +51,24 @@ do_migrations() { be bin/console doctrine:migrations:up-to-date; }
 do_schema()     { be bin/console doctrine:schema:validate; }
 do_phpunit()    { be php vendor/bin/phpunit; }
 do_prod_build() { docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend frontend; }
+
+# Tras el prod-build: la imagen de prod DEBE hornear worker mode. Sin --load/inspect no se
+# puede ver el ENV horneado de otra forma barata; levantar el stack prod entero (DB nueva,
+# puertos, teardown) es justo lo que la Fase 2 local hace a mano. Acá alcanza con que el
+# valor exista en la imagen: si alguien lo saca del Dockerfile, worker arranca apagado.
+do_prod_worker() {
+  local img
+  img="$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --images backend 2>/dev/null | head -1)"
+  [[ -n "$img" ]] || { warn "no pude resolver la imagen de prod del backend (¿se saltó prod-build?)"; return 1; }
+  if docker image inspect "$img" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+       | grep -qx 'FRANKENPHP_CONFIG=import worker.Caddyfile'; then
+    echo "worker mode horneado en $img"
+  else
+    warn "la imagen de prod ($img) NO hornea FRANKENPHP_CONFIG=import worker.Caddyfile"
+    warn "worker mode arrancaría APAGADO en prod (ver backend/Dockerfile, stage frankenphp_prod)"
+    return 1
+  fi
+}
 
 # Builder `oliva-ci` (driver docker-container, como setup-buildx-action en el CI). Se crea
 # la primera vez; guarda su propia caché, así que solo el primer build es lento.
@@ -130,6 +151,7 @@ step migrations  do_migrations
 step schema      do_schema
 step phpunit     do_phpunit
 step prod-build  do_prod_build
+step prod-worker do_prod_worker
 if fork_has_extensions; then step ci-build do_ci_build
 else RESULTS+=("SKIP  ci-build (php-extensions.txt vacío)"); fi
 
