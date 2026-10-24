@@ -538,3 +538,30 @@ El costo es diff en un archivo SHARED, que Marcos acepta.
 - `>=1.68` commiteado aborta `deps.sh update` sin crear rama.
 
 No se corrió un `deps.sh update` real (el ciclo no toca) y el job de CI recién corre con el push.
+
+## [docs] Roadmap: "composable services": cada rol es un slot default / reemplazado / ausente
+**Hash:** `294cf25` (ítem 6, backend reemplazable) + `28bf5dd` (fusión de 2+4+6). El hash de esta entrada es el del commit que la agrega.
+**Rama:** `main`
+**Fecha:** 2026-10-23
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `docs/roadmap.md` | modificado | El principio rector "decoupling → full optionality" pasa a ser la escalera de 3 pasos y la tabla de estados de un slot. Los ítems 2 (optionality), 4 (shared-infra como flag) y 6 (backend reemplazable) se fusionan en el ítem 2 "Composable services". El agent layer pasa de 5 a 4. Diagrama de secuencia actualizado. |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**La idea de Marcos, llevada a su fin.** Oliva va de "algunos servicios opcionales + shared-infra" a "ningún servicio obligatorio" y después a "todo opcional y reemplazable", ofreciendo y recomendando lo que ya tiene robusto. Al escribirlo apareció que esos tres pasos son el mismo mecanismo: opcional = reemplazado por nada, y shared-infra ya era reemplazar por algo externo. Por eso se fusionaron: tres ítems separados repetían la misma tesis con distintos ejemplos.
+
+**Por qué un solo default robusto por rol (decisión de Marcos).** Casi toda la red de guards es PHP: `deps.sh`, `sync.sh locks`, `unbound-constraints`, `verify.sh` y el CI. Duplicarla por stack no es sostenible para un mantenedor solo. Marcos es core PHP y no puede garantizar robustez de otro stack escribiéndolo a fuerza de prompts. Un guard escrito sin dominar el stack es peor que ninguno, porque sugiere una protección que no existe. Por eso el reemplazo corre por cuenta de quien reemplaza, y Oliva lo **avisa** (`doctor`/`verify`/CI). Es el principio de "ninguna falla silenciosa" aplicado a los límites de Oliva. El estado ausente no cuesta nada ni imprime nada. Queda abierta la puerta a contribuciones: una alternativa pasa a ser default cuando alguien se hace dueño de su red.
+
+**Lo no obvio que encontró el análisis.**
+- Los containers mezclan roles. `frontend` es también el gateway: si se reemplaza por Next.js, se pierde en silencio el ruteo a `/api` y los headers de seguridad. `backend` es también el hub de Mercure y el que corre el ciclo de vida de la DB. `scheduler` y `worker` usan la imagen del backend.
+- Separar roles es el primer paso, y sirve aunque nadie reemplace nada.
+- Hay dos clases de slot: independiente (gateway, frontend, realtime) y atado al backend (DB, cola, worker, scheduler, que los habla Doctrine o Messenger).
+
+**Descartado / diferido.**
+- Sacar Mercure a su propio servicio **no se hace ahora** (decisión de Marcos). Queda dentro del ítem 2. Revierte la decisión de `oliva-upgrade-optional-services.md` cuando se trabaje.
+- La forma limpia del ítem sigue esperando al scaffolding (ítem 3), porque los profiles no sacan código ni cortan el sync de `owned-paths`.
+
+**Renumeración segura.** La única referencia externa a un número del roadmap es "item 3", en `E-capa-agentica.md`, y sigue siendo válida.
