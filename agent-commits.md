@@ -735,3 +735,5 @@ env da `unset` y pasa. Quedaron los dos chequeos.
 Verificado: `verify.sh` 9/9; guards contra el repo real (imagen 10/10, `.env` viejo detectado) y con
 compose falso (DB listada antes que el backend, imagen inexistente, compose que no resuelve);
 pendientes/ack/siembra/lint en un clon con una 1.5.1 de fixture; shellcheck sin errores.
+
+**Revisión post-release → 1.5.1 (`fix(sync): ajustes de 1.5.0 tras revisión`):** `release.sh` deja reconocida la versión que publica (sin esto, el `doctor` de Oliva listaba como pendientes las acciones de los forks; confirmado en clon). Hallazgo no obvio: `git pull` reemplaza `deploy.sh` con un inode nuevo y bash termina de ejecutar el script **viejo** (probado), así que el deploy que trae 1.5.x no corre los guards → acción `[host]` en 1.5.1 (`git pull && SKIP_PULL=1 ./scripts/deploy.sh`). Además: fences ignorados en lint/pendientes, `ack` robusto con `set -e`. Deploy simulado en clon: el tramo final con `docs/` borrado dio los 3 avisos.

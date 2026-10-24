@@ -130,8 +130,10 @@ pending_upgrade_actions() {
     BEGIN { lo = vnum(acked); hi = vnum(cur); fl = vnum(floor) }
     /^## [0-9]+\.[0-9]+\.[0-9]+/ { ver = $2; n = vnum(ver); inrange = (n > lo && n <= hi && n >= fl); inact = 0; take = 0; next }
     /^\*\*Acción requerida/ { inact = inrange; next }
-    /^\*\*/ { inact = 0; take = 0; next }
     !inact { next }
+    /^```/ { fence = !fence; if (take) print "     " $0; next }
+    fence { if (take) print "     " $0; next }
+    /^\*\*/ { inact = 0; take = 0; next }
     /^- / {
       take = 0
       if (match($0, /^- \[[^]]+\]/)) {
@@ -171,7 +173,7 @@ show_pending_upgrade_actions() {
 ack_upgrade_actions() {
   local cur out
   cur="$(_ug_current_version)"
-  out="$(pending_upgrade_actions "$OLIVA_ACTION_PLACES")"
+  out="$(pending_upgrade_actions "$OLIVA_ACTION_PLACES")" || true   # sin UPGRADING en HEAD: igual reconoce
   mkdir -p "$(dirname "$OLIVA_ACK_FILE")"
   echo "$cur" > "$OLIVA_ACK_FILE"
   if [[ -n "$out" ]]; then
@@ -192,6 +194,8 @@ lint_upgrade_actions() {
   found="$(awk -v v="$ver" '
     /^## [0-9]+\.[0-9]+\.[0-9]+/ { sec = ($2 == v); inact = 0; next }
     sec && /^\*\*Acción requerida/ { inact = 1; print "#HEADER"; next }
+    sec && inact && /^```/ { fence = !fence; next }
+    fence { next }
     sec && /^\*\*/ { inact = 0; next }
     sec && inact && /^(- |[0-9]+\. )/' "$file")"
   if [[ "$found" != "#HEADER"* ]]; then

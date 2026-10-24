@@ -368,9 +368,11 @@ Correr al **inicio** de cada sesión antes de tocar código:
 ./oliva doctor
 ```
 
-Colapsa rama, status, log, `docker compose ps`, estado de migraciones, `deps.sh due`
+Colapsa rama, status, log, `docker compose ps`, estado de migraciones, `deps.sh due`,
+acciones de upgrade pendientes en esta máquina (`sync.sh pending`; se reconocen con `./oliva ack`)
 y (si el repo es un fork, detectando el remote `oliva-upstream`) `sync.sh check` en
-una sola llamada read-only. Ningún paso lo aborta — ni con Docker abajo.
+una sola llamada read-only (lo único que escribe es `.oliva/acked-version` la primera vez, gitignored).
+Ningún paso lo aborta — ni con Docker abajo.
 
 `deps.sh due` (dentro de `doctor`) reporta DOS cadencias: el ciclo de deps (frescura, ~45 días → `report`/`update`)
 y el audit de CVEs (seguridad, ~7 días → `scripts/oliva/deps.sh audit`, que corre composer +

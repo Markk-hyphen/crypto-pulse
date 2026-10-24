@@ -23,6 +23,31 @@ Al escribir una acción, en este orden: **eliminarla** (que el cambio no le pida
 **> guard > etiqueta sin guard** (se muestra hasta el ack) **> texto suelto**. Casi todo lo que
 parece "manual" es estado que vive donde git no llega (un `.env`, otro host); eso se chequea.
 
+## 1.5.1 — 2026-10-24
+
+> Ajustes de 1.5.0 encontrados en la revisión posterior al release. En el repo de Oliva,
+> `doctor` iba a listar como pendientes las acciones escritas para los forks después de cada
+> release: ahora `release.sh` deja reconocida la versión que publica. Un bloque de código
+> pegado al margen dentro de "Acción requerida" ya no se confunde con ítems. Y una precisión
+> operativa: `deploy.sh` hace `git pull` mientras corre, y git reemplaza el archivo (inode
+> nuevo), así que bash termina ejecutando el script **viejo**. El deploy que trae 1.5.x en un
+> host que venía de antes todavía no corre los guards.
+
+**Acción requerida en el fork**
+
+- [host] El primer deploy después de syncear a 1.5.x, en cada host que venga de una versión
+  anterior: traer el código antes y deployar sin pull, para que corra el `deploy.sh` nuevo (con
+  los guards de cron y worker mode):
+  `git pull && SKIP_PULL=1 ./scripts/deploy.sh` (idem `deploy-staging.sh`). Si deployás como
+  siempre, ese deploy usa el script viejo y los avisos recién aparecen en el siguiente.
+
+**Qué cambió**
+
+- `scripts/oliva/release.sh`: escribe `.oliva/acked-version` con la versión que publica.
+- `scripts/lib/upgrade-guards.sh`: el lint y la lista de pendientes ignoran el contenido de
+  bloques de código cercados; `ack` no corta si `UPGRADING.md` no está en `HEAD`.
+- `AGENTS.md`: la descripción de `doctor` incluye el paso de acciones de upgrade.
+
 ## 1.5.0 — 2026-10-24
 
 > Acciones de upgrade que no se pierden. Hasta acá, `sync.sh` mostraba estas notas solo antes
@@ -43,7 +68,8 @@ parece "manual" es estado que vive donde git no llega (un `.env`, otro host); es
 
 Ninguna. El estado (`.oliva/acked-version`, ya gitignored por `.oliva/`) se siembra solo en la
 primera corrida, en cada máquina. Los pendientes de host de 1.4.2 y 1.4.3 no se listan (son
-anteriores al formato), pero sus guards (`cron`, `worker-env`) los avisan en el próximo deploy.
+anteriores al formato), pero sus guards (`cron`, `worker-env`) los avisan desde el primer deploy
+que corra el `deploy.sh` nuevo (ojo: no es el que trae 1.5.0, ver 1.5.1).
 
 **Qué cambió**
 

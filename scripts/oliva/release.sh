@@ -29,5 +29,8 @@ printf '%s\n' "$ver" > OLIVA_VERSION
 git add OLIVA_VERSION
 git commit -q -m "release: Oliva $ver"
 git tag -a "v$ver" -m "Oliva $ver"
+# Las acciones de la versión son para los forks: en el checkout de Oliva ya están hechas
+# (las escribió quien publica). Sin esto, `doctor` de Oliva las listaría como pendientes.
+mkdir -p "$(dirname "$OLIVA_ACK_FILE")" && echo "$ver" > "$OLIVA_ACK_FILE"
 info "Oliva $ver lista. Publicar: git push origin main v$ver"
 info "Después, en cada fork: scripts/oliva/sync.sh check"
