@@ -16,6 +16,10 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 > `.env`: cualquier servicio de otro profile quedaba corriendo con la versión vieja después del
 > deploy. Hoy no le pega a ningún fork (en shared-infra no hay servicios de `queues` en prod),
 > pero sí al `worker` de prod que viene (va detrás de `queues`). Ahora baja con `--profile '*'`.
+>
+> Constraints de composer: `doctrine-migrations-bundle` y `maker-bundle` no tenían techo
+> (`>=3.7.1`, `>=1.68`), y migrations-bundle 4.0 ya existe. Hoy no entraba solo porque pide
+> PHP 8.4 y doctrine-bundle 3. Ahora llevan techo, y un guard frena cualquier constraint sin techo.
 
 **Acción requerida en el fork**
 
@@ -24,6 +28,10 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
   conviene dejarlo también en su `.env.example` para que un host nuevo lo herede. Si no
   está, el próximo `deploy.sh` lo avisa al final con un bloque `!! CRON INACTIVO`.
 - Si el fork no usa cron: ninguna.
+- Constraints: nada a mano si el fork no tocó esas dos líneas de `backend/composer.json`. El
+  merge las trae con techo y `sync.sh locks` refresca el `content-hash` del lock (no cambia
+  versiones). Si el fork tiene deps **propias** sin techo, `sync.sh locks` aborta y las lista:
+  ponerles techo y volver a correrlo. El CI del fork también las marca (job `composer-constraints`).
 
 **Qué cambió**
 
@@ -35,6 +43,13 @@ o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 - `scripts/deploy.sh`, `deploy-staging.sh`, `down.sh`, `down-staging.sh`: el `down` corre con
   `--profile '*'` en vez de `COMPOSE_PROFILES=cron`. Baja todos los servicios con profile,
   incluidos los que agregue el fork. Sin `-v`, como siempre: los volúmenes no se tocan.
+- `backend/composer.json`: `doctrine/doctrine-migrations-bundle` `>=3.7.1` → `^3.7.1`,
+  `symfony/maker-bundle` `>=1.68` → `^1.68`. `bump-after-update` se queda (ver `AGENTS.md`).
+- `scripts/oliva/unbound-constraints.php` (nuevo) + `require_bounded_constraints` en `lib.sh`:
+  aborta `deps.sh update` y `sync.sh locks` si hay constraints sin techo en `require` o
+  `require-dev`. Job de CI nuevo `composer-constraints`.
+- `deps.sh update`: el resumen marca `⇑ MAJOR` los saltos de major (en 0.x, de minor), que
+  solo pueden venir de deps transitivas.
 - `AGENTS.md`, `.env.example`: documentan `COMPOSE_PROFILES` del host como el mecanismo.
 
 ## 1.4.1 — 2026-10-23

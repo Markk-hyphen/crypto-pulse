@@ -88,12 +88,25 @@ Varias apps Oliva conviven en el mismo host (en dev, tu máquina; en prod, el VP
 
 **Profiles en el `down` de los scripts:** `deploy*.sh`/`down*.sh` bajan con `--profile '*'`. Un `down` sin profile activo deja corriendo, sin error, a los servicios con `profiles:` que un overlay redefine (`scheduler`/`rabbitmq` en `prod.yml`): el stack viejo sobrevive al deploy. El `COMPOSE_PROFILES=cron` de antes reemplazaba los profiles del `.env` y dejaba afuera a `queues`. `'*'` también mete en scope a `database`/`rabbitmq` desactivados en shared-infra; no tienen containers en ese project, así que el `down` no hace nada con ellos.
 
-### Deuda conocida: constraints sin techo + `bump-after-update`
+### Constraints de composer: siempre con techo, pisos con `bump-after-update`
 
-`backend/composer.json` (en Oliva y en los forks) tiene `doctrine/doctrine-migrations-bundle
->=3.7.1` y `symfony/maker-bundle >=1.68`, y `"bump-after-update": true` convierte otros rangos en
-`>=`. Con eso `deps.sh update` puede subir un major sin aviso (ya pasó con mercure-bundle 0.6).
-Ponerles techo (`^3.7`, `^1.68`) y decidir si `bump-after-update` se queda.
+Todo constraint de `require`/`require-dev` en `backend/composer.json` lleva techo (`^x.y`,
+`x.y.*`). Uno sin techo (`*`, `>=x`, `dev-main`) deja que `composer update` instale un major
+sin aviso: así entró mercure-bundle 0.6 y rompió el build. Lo frena
+`scripts/oliva/unbound-constraints.php`, que corre antes de `deps.sh update`, antes de
+`sync.sh locks` y en el CI (job `composer-constraints`). `composer validate` hace lo mismo
+pero solo sobre `require`.
+
+`"bump-after-update": true` **se queda a propósito**: sube el piso de cada constraint a la
+versión instalada (`^3.6` → `^3.7.5`) y nunca toca el techo. Ese piso es lo que impide que
+composer **baje** una versión sin avisar cuando un fork agrega una dep que la restringe
+(`composer require -W`) o en `sync.sh locks`: sin piso, el fork se queda en una versión que
+Oliva ya no testea y el comando termina OK. El costo es ~6 líneas de diff por ciclo de deps en
+un archivo SHARED.
+
+Lo que los techos no cubren: una dep **transitiva** puede saltar de major si la directa declara
+compatibilidad (`doctrine/orm` acepta `dbal ^3 || ^4`). `deps.sh update` las marca con
+`⇑ MAJOR` en el resumen: mirar el changelog antes de mergear.
 
 ### Deuda conocida: environments de Bruno commiteados se ensucian solos al testear
 

@@ -267,6 +267,7 @@ cmd_scan_images() {
 # ── update ─────────────────────────────────────────────────────────────────────
 cmd_update() {
   require_clean_tree
+  require_bounded_constraints
   local branch before after
   branch="chore/deps-$(date +%F)"
   git switch -c "$branch"
@@ -285,7 +286,12 @@ cmd_update() {
 
   ( cd backend && jq -r '(.packages + ."packages-dev")[] | "\(.name) \(.version)"' composer.lock | sort ) > "$after"
   local summary
-  summary="$(join -a2 -e '(nuevo)' -o '0,1.2,2.2' "$before" "$after" | awk '$2!=$3 {print "- " $1 ": " $2 " → " $3}')"
+  # ⇑ MAJOR: los techos frenan majors de las deps DIRECTAS; una transitiva puede saltar si la
+  # directa declara compatibilidad (orm acepta dbal ^3 || ^4). Mirar el changelog antes de mergear.
+  # En 0.x el "major" es el minor (semver de composer: ^0.4 = 0.4.*).
+  summary="$(join -a2 -e '(nuevo)' -o '0,1.2,2.2' "$before" "$after" | awk '
+    function major(v,  p) { sub(/^v/, "", v); split(v, p, "."); return p[1] == "0" ? p[1] "." p[2] : p[1] }
+    $2 != $3 { m = ($2 != "(nuevo)" && major($2) != major($3)) ? "  ⇑ MAJOR" : ""; print "- " $1 ": " $2 " → " $3 m }')"
   echo "$summary"
 
   info "audit"

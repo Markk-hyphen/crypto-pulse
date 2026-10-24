@@ -74,3 +74,17 @@ composer_lock_versions() {
   git show "$1:backend/composer.lock" 2>/dev/null \
     | jq -r '(.packages + ."packages-dev")[] | "\(.name) \(.version)"' | sort
 }
+
+# Aborta si backend/composer.json tiene constraints sin techo (ver unbound-constraints.php).
+# Va ANTES de cada `composer update` que corren los scripts: después, el major ya entró.
+require_bounded_constraints() {
+  local img out
+  img="$(composer_tool_image)"
+  out="$(docker run --rm \
+    -v "$PWD/backend/composer.json:/c/composer.json:ro" \
+    -v "$PWD/scripts/oliva/unbound-constraints.php:/c/check.php:ro" \
+    --entrypoint php "$img" /c/check.php /c/composer.json)" && return 0
+  warn "backend/composer.json tiene constraints sin techo: composer podría instalar un major sin aviso."
+  echo "$out" | sed 's/^/     /' >&2
+  die "ponele techo a cada uno (ej. \">=3.7.1\" → \"^3.7.1\") y volvé a correr."
+}

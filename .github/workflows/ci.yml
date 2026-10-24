@@ -145,6 +145,25 @@ jobs:
             || { echo "::error::scheduler APP_ENV != 'prod' en docker-compose.prod.yml"; exit 1; }
           echo "✓ backend y scheduler resuelven APP_ENV=prod"
 
+  composer-constraints:
+    # Guarda barata (sin build): falla si backend/composer.json tiene un constraint sin
+    # techo (`*`, `>=x`, `dev-main`), que deja a `composer update` instalar un major sin
+    # aviso (así entró mercure-bundle 0.6). deps.sh update y sync.sh locks lo chequean
+    # antes de tocar el lock; esto atrapa lo que se agrega a mano con `composer require`.
+    name: Composer constraints guard
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v4
+
+      -
+        name: Todo constraint de require/require-dev tiene techo
+        run: |
+          docker run --rm -v "$PWD:/w:ro" -w /w composer/composer:2 \
+            php scripts/oliva/unbound-constraints.php backend/composer.json \
+            || { echo "::error file=backend/composer.json::constraints sin techo (ver arriba): ponerles techo, ej. \">=3.7.1\" → \"^3.7.1\""; exit 1; }
+
   lint:
     name: Docker Lint
     runs-on: ubuntu-latest

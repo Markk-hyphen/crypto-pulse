@@ -168,6 +168,7 @@ cmd_locks() {
   for manifest in backend/composer.json frontend/package.json; do
     grep -qE '^(<<<<<<<|>>>>>>>)' "$manifest" && die "$manifest tiene marcadores de conflicto: resolvelo primero."
   done
+  require_bounded_constraints
 
   # composer
   if ! git diff --quiet "$base" "$theirs" -- backend/composer.lock backend/composer.json \
