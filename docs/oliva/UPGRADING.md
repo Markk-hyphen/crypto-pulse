@@ -5,7 +5,7 @@ al fork las secciones más nuevas que su `OLIVA_VERSION`. Formato fijo (lo parse
 encabezado `## X.Y.Z — fecha`, después **Acción requerida en el fork** (pasos concretos,
 o "ninguna") y **Qué cambió** (resumen; el detalle está en `git log`).
 
-## 1.4.2 — sin publicar
+## 1.4.2 — 2026-10-23
 
 > Cron en prod: el scheduler se activa con `COMPOSE_PROFILES` en el `.env` del host, no
 > editando `deploy.sh`. Hasta acá el script le decía al fork "agregá `--profile cron` al up"

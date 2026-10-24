@@ -492,3 +492,49 @@ Solo-docs → no dispara CI, gracias al `paths-ignore` de `a7c3267`.
 **Por qué es inocuo con shared-infra:** `'*'` mete en scope a `database`/`rabbitmq` desactivados (`disabled-in-shared-infra`). En ese project no tienen containers, así que el `down` no los toca; sin `-v` no se borra ningún volumen.
 
 **Impacto real hoy:** latente. En shared-infra no corre nada de `queues` en prod (`rabbitmq` desactivado, sin `worker`), así que ningún fork lo sufría todavía. Le iba a pegar al `worker` de #6.
+
+## [1.4.2] fix: techos en composer.json + guard de constraints sin techo (#9 de la auditoría)
+**Hash:** `456aea7`
+**Rama:** `main`
+**Fecha:** 2026-10-23
+**Origen:** auditoría "puntos sensibles para forks" (#9). Cierra la release 1.4.2 junto con #7 y #8.
+
+### Cambios
+| Archivo | Tipo | Descripción |
+|---|---|---|
+| `backend/composer.json` | modificado | `doctrine/doctrine-migrations-bundle` `>=3.7.1` → `^3.7.1`; `symfony/maker-bundle` `>=1.68` → `^1.68`. `bump-after-update` se queda. |
+| `backend/composer.lock` | modificado | Solo `content-hash` (`update --lock`); ninguna versión cambia. |
+| `scripts/oliva/unbound-constraints.php` | nuevo | Lista constraints sin techo en `require` + `require-dev` con `composer/semver` del phar (`getUpperBound()->isPositiveInfinity()`), más `dev-*`. Ignora `php`/`ext-*`. Sale 1 si hay alguno. |
+| `scripts/oliva/lib.sh` | modificado | `require_bounded_constraints`: corre el guard en la imagen de herramientas y aborta con la lista. |
+| `scripts/oliva/deps.sh` | modificado | `update`: guard al principio (antes de crear la rama). El resumen marca `⇑ MAJOR` (en 0.x, salto de minor). |
+| `scripts/oliva/sync.sh` | modificado | `locks`: guard después del chequeo de marcadores, antes de tocar el lock. |
+| `.github/workflows/ci.yml` | modificado | Job nuevo `composer-constraints` (sin build, imagen `composer/composer:2`). |
+| `AGENTS.md` | modificado | La deuda "constraints sin techo" pasa a sección de convención: techos siempre, por qué bump se queda, riesgo transitivo. |
+| `docs/oliva/UPGRADING.md` | modificado | #9 en la sección `## 1.4.2`; encabezado con fecha (este commit). |
+| `agent-commits.md` | modificado | Esta entrada. |
+
+### Justificación
+**El riesgo no era teórico.** `doctrine-migrations-bundle` 4.0.1 ya está publicado. Con `>=3.7.1`, lo único que lo frenaba eran sus requisitos (PHP `^8.4`, `doctrine-bundle ^3`). Esa protección indirecta se caía sola el día que Oliva subiera PHP: el mismo patrón que mercure-bundle 0.6.
+
+**Se corrigió un diagnóstico propio.** Se había atribuido parte del incidente de mercure a `bump-after-update`. Falso: el salto lo eligió `composer update` porque el `*` lo permitía. Bump solo reescribe el texto del constraint después (`*` → `>=x`, `^3.6` → `^3.7.5`) y nunca quita un techo.
+
+**Por qué bump se queda (decisión con Marcos, con pruebas).** Su piso impide que composer **baje** versiones sin avisar. Probado en un proyecto descartable con una dep de fork que exige `doctrine/orm <3.7`:
+- Sin piso, `composer require -W` bajó orm 3.7.5 → 3.6.9 con rc=0.
+- Sin piso, `sync.sh locks` dejó al fork en 3.6.9 con rc=0, sin la versión que testeó Oliva.
+- Con piso, los dos fallan y nombran al culpable.
+
+El costo es diff en un archivo SHARED, que Marcos acepta.
+
+**Por qué un guard propio y no `composer validate --strict`.** `validate` solo mira `require` (no vio `maker-bundle >=1.68` en `require-dev`) y deja pasar `dev-main`. El guard reusa la lógica de composer en vez de una regex: se probaron 10 formas de constraint.
+
+**Por qué en esos tres lugares y no en `verify.sh`.** El CI no corre `verify.sh`, y en `deps.sh update` el verify corre después del `composer update`, cuando el major ya entró. El guard tiene que estar antes de cada `composer update` que corre el tooling (`deps.sh update`, `sync.sh locks`) y en el CI para lo que se agrega a mano.
+
+**`⇑ MAJOR`.** Los techos cubren las deps directas. Una transitiva puede saltar si la directa declara compatibilidad (orm acepta `dbal ^3 || ^4`). No se bloquea, porque es una promesa del upstream, pero se hace visible antes de mergear.
+
+**Verificación end-to-end** en un clon descartable de finanzas-ong contra este `main`:
+- Merge limpio de `composer.json`.
+- `sync.sh locks` cambia solo el hash.
+- Una dep propia con `*` aborta `sync.sh locks` sin tocar el lock.
+- `>=1.68` commiteado aborta `deps.sh update` sin crear rama.
+
+No se corrió un `deps.sh update` real (el ciclo no toca) y el job de CI recién corre con el push.
