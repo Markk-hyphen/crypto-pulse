@@ -91,6 +91,26 @@ Axes to watch while doing it:
   audit + Trivy) as the baseline; `/security-review` for what audit can't cover
   (authz, port exposure, JWT/secret handling).
 
+> **Decision note — Snyk: no por ahora (low priority).** Evaluado 2026-10-24.
+> El stack OSS actual (`composer audit` + `yarn audit` + Trivy sobre imágenes
+> base + la capa php.net para el runtime) cubre deps + SO + runtime para la
+> escala de hoy, así que Snyk no entra todavía. Dos razones de fondo:
+> (1) el gap que motivó mirar — el runtime de PHP — es por el build estático de
+> FrankenPHP, que Snyk Container probablemente *tampoco* detecte, así que no
+> reemplaza la capa php.net; (2) Snyk es SaaS (manifests a su nube + token en
+> CI), fricción nueva contraria al norte autocontenido de Oliva, y su free tier
+> limita tests/mes.
+> **Dónde rendiría SAST (código, no deps):** en los **forks**, que es donde vive
+> la lógica de dominio escrita a mano — Oliva se queda flaco por diseño, así que
+> auditar su propio código rinde poco. SCA (CVEs de deps) aplica a ambos pero ya
+> está cubierto.
+> **Cuándo reconsiderar:** (a) querer SAST real sobre los forks, o (b) tantos
+> forks que un dashboard gestionado cross-repo ahorre tiempo. Antes que Snyk,
+> mirar **Dependabot** (gratis, sin SaaS de terceros; alerting temprano de deps).
+> **Cómo integrarlo si llega el día:** a Oliva (scripts/CI + `owned-paths.txt`),
+> para que baje por `sync.sh` a cada fork — igual que `deps.sh audit`; lo único
+> per-repo es la cuenta/token en el CI de cada uno.
+
 The output feeds everything below — especially the scaffolding work, which
 should not be designed until this signal exists.
 
